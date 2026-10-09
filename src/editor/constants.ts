@@ -27,3 +27,6 @@ export const MAX_CANVAS_DIMENSION = 16_384;
 export const MAX_CANVAS_PIXELS = 36_000_000;
 
 export const DEFAULT_LAYER_NAME = 'Layer';
+
+/** Length of the stroke stabilizer rope, in screen pixels (independent of zoom). */
+export const STABILIZE_SCREEN_RADIUS = 15;

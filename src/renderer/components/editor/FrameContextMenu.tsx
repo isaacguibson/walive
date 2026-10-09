@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-export type FrameAction = 'copy' | 'cut' | 'paste' | 'duplicate' | 'clear' | 'remove';
+export type FrameAction = 'copy' | 'cut' | 'paste' | 'duplicate' | 'clear' | 'remove' | 'set-reference' | 'clear-reference';
 
 interface MenuItem {
   action: FrameAction;
@@ -17,18 +17,19 @@ const MENU_ITEMS: readonly MenuItem[] = [
 ];
 
 const MENU_WIDTH = 180;
-const MENU_HEIGHT = 230;
+const MENU_HEIGHT = 280;
 
 interface FrameContextMenuProps {
   x: number;
   y: number;
   canPaste: boolean;
+  isReference: boolean;
   onAction(action: FrameAction): void;
   onClose(): void;
 }
 
 /** Floating menu for the frame that was right-clicked. */
-export function FrameContextMenu({ x, y, canPaste, onAction, onClose }: FrameContextMenuProps) {
+export function FrameContextMenu({ x, y, canPaste, isReference, onAction, onClose }: FrameContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,6 +81,18 @@ export function FrameContextMenu({ x, y, canPaste, onAction, onClose }: FrameCon
           {item.label}
         </button>
       ))}
+      <div className="context-menu-divider" />
+      <button
+        type="button"
+        role="menuitem"
+        className="context-menu-item"
+        onClick={() => {
+          onAction(isReference ? 'clear-reference' : 'set-reference');
+          onClose();
+        }}
+      >
+        {isReference ? 'Clear Onion Reference' : 'Set as Onion Reference'}
+      </button>
     </div>
   );
 }

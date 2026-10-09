@@ -17,6 +17,8 @@ interface MenuState {
   y: number;
 }
 
+const FRAME_DRAG_MIME = 'application/x-walive-frame';
+
 /** Area 3: frame management toolbar and the sequence of frames. */
 export function Timeline({ session, snapshot, height = 168 }: TimelineProps) {
   const [addOpen, setAddOpen] = useState(false);
@@ -51,6 +53,12 @@ export function Timeline({ session, snapshot, height = 168 }: TimelineProps) {
         break;
       case 'remove':
         session.removeFrame(frameId);
+        break;
+      case 'set-reference':
+        session.setManualReferenceFrame(frameId);
+        break;
+      case 'clear-reference':
+        session.setManualReferenceFrame(null);
         break;
     }
   }
@@ -110,6 +118,14 @@ export function Timeline({ session, snapshot, height = 168 }: TimelineProps) {
         />
         <IconButton icon="clear" label="Clear Frame" disabled={locked} onClick={() => run('clear', snapshot.activeFrame.id)} />
         <IconButton icon="trash" label="Remove Frame" disabled={locked} onClick={() => run('remove', snapshot.activeFrame.id)} />
+        <IconButton
+          icon="onion"
+          label="Toggle Onion Reference"
+          variant="toggle"
+          pressed={snapshot.onionEnabled}
+          disabled={locked}
+          onClick={() => session.setOnionEnabled(!snapshot.onionEnabled)}
+        />
         <span className="timeline-count muted">
           {snapshot.frames.length} {snapshot.frames.length === 1 ? 'frame' : 'frames'}
         </span>
@@ -118,12 +134,38 @@ export function Timeline({ session, snapshot, height = 168 }: TimelineProps) {
       <ol className="frame-strip" aria-label="Frames">
         {snapshot.frames.map((frame, index) => {
           const active = frame.id === activeFrameId;
+          const reference = frame.id === snapshot.manualReferenceFrameId;
           return (
-            <li key={frame.id} className="frame-item">
+            <li
+              key={frame.id}
+              className="frame-item"
+              data-frame-id={frame.id}
+              draggable={!locked}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(FRAME_DRAG_MIME, frame.id);
+                event.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(event) => {
+                if (Array.from(event.dataTransfer.types).includes(FRAME_DRAG_MIME)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                }
+              }}
+              onDrop={(event) => {
+                if (!Array.from(event.dataTransfer.types).includes(FRAME_DRAG_MIME)) {
+                  return;
+                }
+                event.preventDefault();
+                const draggedId = event.dataTransfer.getData(FRAME_DRAG_MIME);
+                if (draggedId !== '') {
+                  session.reorderFrame(draggedId, index);
+                }
+              }}
+            >
               <button
                 type="button"
                 ref={active ? activeRef : undefined}
-                className={active ? 'frame-button is-active' : 'frame-button'}
+                className={`frame-button${active ? ' is-active' : ''}${reference ? ' is-reference' : ''}`}
                 aria-current={active ? 'true' : undefined}
                 title={`Frame ${index + 1}`}
                 onClick={() => session.selectFrame(frame.id)}
@@ -144,6 +186,7 @@ export function Timeline({ session, snapshot, height = 168 }: TimelineProps) {
           x={menu.x}
           y={menu.y}
           canPaste={snapshot.canPaste}
+          isReference={menu.frameId === snapshot.manualReferenceFrameId}
           onAction={(action) => run(action, menu.frameId)}
           onClose={closeMenu}
         />

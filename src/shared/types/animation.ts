@@ -25,4 +25,6 @@ export interface AnimationDocument {
   width: number;
   height: number;
   frames: AnimationFrameData[];
+  /** Optional for backwards compatibility. The designated visual reference frame. */
+  manualReferenceFrameId?: string | null;
 }

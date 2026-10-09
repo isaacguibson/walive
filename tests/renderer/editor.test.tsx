@@ -19,6 +19,7 @@ import {
 } from './helpers';
 
 const SIZE = 64;
+const FRAME_DRAG_MIME = 'application/x-walive-frame';
 const PROJECT = { ...metadata('Studio'), canvas: { width: SIZE, height: SIZE, keepAspectRatio: false } };
 
 interface Options {
@@ -627,6 +628,43 @@ describe('tools', () => {
   });
 });
 
+describe('brush pressure options', () => {
+  it('only shows the toggle on the Brush tool and preserves the configured size', async () => {
+    const { user } = await renderReadyEditor();
+    const input = screen.getByRole('textbox', { name: 'Size' });
+    await user.clear(input);
+    await user.type(input, '12');
+    const toggle = screen.getByRole('switch', { name: 'Use Pen Pressure' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(input).toBeEnabled();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(input).toBeDisabled();
+    expect(input).toHaveValue('12');
+
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    expect(screen.queryByRole('switch', { name: 'Use Pen Pressure' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    expect(screen.getByRole('switch', { name: 'Use Pen Pressure' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('textbox', { name: 'Size' })).toBeDisabled();
+  });
+
+  it('shows a separate Stabilize Stroke toggle on Brush and preserves the setting when switching tools', async () => {
+    const { user } = await renderReadyEditor();
+    const stabilize = screen.getByRole('switch', { name: 'Stabilize Stroke' });
+    expect(stabilize).toHaveAttribute('aria-checked', 'false');
+    expect(stabilize).toHaveAttribute('title', 'Smooth brush strokes to reduce unintended tremors');
+
+    await user.click(stabilize);
+    expect(stabilize).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    expect(screen.queryByRole('switch', { name: 'Stabilize Stroke' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    expect(screen.getByRole('switch', { name: 'Stabilize Stroke' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
 describe('frame management', () => {
   it('adds a frame after the active one and selects it', async () => {
     const { user } = await renderReadyEditor();
@@ -722,7 +760,8 @@ describe('frame management', () => {
       'Paste',
       'Duplicate',
       'Clear',
-      'Remove'
+      'Remove',
+      'Set as Onion Reference'
     ]);
     expect(within(menu).getByRole('menuitem', { name: 'Paste' })).toBeDisabled();
     // The right-clicked frame becomes the target.
@@ -743,6 +782,108 @@ describe('frame management', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('shows automatic onion frames and updates the read-only overlay when selecting frames', async () => {
+    const stored: AnimationDocument = {
+      width: SIZE,
+      height: SIZE,
+      frames: ['a', 'b', 'c'].map((id, index) => ({
+        id,
+        layers: [{ id: `layer-${id}`, name: `Layer ${index + 1}`, visible: true, pixels: null }]
+      }))
+    };
+    const { user } = await renderReadyEditor({ animationApi: createMockAnimationApi({ loadAnimation: async () => ok(stored) }) });
+    expect(screen.queryByTestId('onion-reference-canvas')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Toggle Onion Reference' }));
+    expect(screen.queryByTestId('onion-reference-canvas')).toBeNull();
+    await user.click(frameButtons()[1] as HTMLElement);
+    expect(await screen.findByTestId('onion-reference-canvas')).toHaveAttribute('data-reference-frame-id', 'a');
+    await user.click(frameButtons()[2] as HTMLElement);
+    expect(screen.getByTestId('onion-reference-canvas')).toHaveAttribute('data-reference-frame-id', 'b');
+
+    // The active canvas stays independently editable; the reference is an ignored, lower canvas.
+    expect(canvas()).toBeInTheDocument();
+    expect(screen.getByTestId('onion-reference-canvas')).not.toHaveClass('drawing-canvas');
+  });
+
+  it('designates, highlights, persists and clears a manual onion reference', async () => {
+    const stored: AnimationDocument = {
+      width: SIZE,
+      height: SIZE,
+      frames: ['a', 'b', 'c'].map((id, index) => ({
+        id,
+        layers: [{ id: `layer-${id}`, name: `Layer ${index + 1}`, visible: true, pixels: null }]
+      }))
+    };
+    const { user, animationApi } = await renderReadyEditor({ animationApi: createMockAnimationApi({ loadAnimation: async () => ok(stored) }) });
+    await user.click(screen.getByRole('button', { name: 'Toggle Onion Reference' }));
+    await user.click(frameButtons()[2] as HTMLElement);
+    fireEvent.contextMenu(frameButtons()[0] as HTMLElement, { clientX: 30, clientY: 30 });
+    await user.click(screen.getByRole('menuitem', { name: 'Set as Onion Reference' }));
+
+    expect(frameButtons()[0]).toHaveClass('is-reference');
+    await user.click(frameButtons()[2] as HTMLElement);
+    expect(screen.getByTestId('onion-reference-canvas')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalled());
+    expect(savedDocument(animationApi).manualReferenceFrameId).toBe('a');
+
+    await user.click(screen.getByRole('button', { name: 'Toggle Onion Reference' }));
+    expect(screen.queryByTestId('onion-reference-canvas')).toBeNull();
+    expect(frameButtons()[0]).toHaveClass('is-reference');
+
+    fireEvent.contextMenu(frameButtons()[0] as HTMLElement, { clientX: 30, clientY: 30 });
+    await user.click(screen.getByRole('menuitem', { name: 'Clear Onion Reference' }));
+    expect(frameButtons()[0]).not.toHaveClass('is-reference');
+    expect(screen.queryByTestId('onion-reference-canvas')).toBeNull();
+    await user.click(frameButtons()[2] as HTMLElement);
+    await user.click(screen.getByRole('button', { name: 'Toggle Onion Reference' }));
+    expect(screen.getByTestId('onion-reference-canvas')).toHaveAttribute('data-reference-frame-id', 'b');
+  });
+
+  it('does not render a manual reference frame underneath itself', async () => {
+    const stored: AnimationDocument = {
+      width: SIZE,
+      height: SIZE,
+      manualReferenceFrameId: 'a',
+      frames: ['a', 'b'].map((id) => ({ id, layers: [{ id: `layer-${id}`, name: 'Layer', visible: true, pixels: null }] }))
+    };
+    const { user } = await renderReadyEditor({ animationApi: createMockAnimationApi({ loadAnimation: async () => ok(stored) }) });
+    await user.click(screen.getByRole('button', { name: 'Toggle Onion Reference' }));
+    await user.click(frameButtons()[0] as HTMLElement);
+    expect(screen.queryByTestId('onion-reference-canvas')).toBeNull();
+    await user.click(frameButtons()[1] as HTMLElement);
+    expect(screen.getByTestId('onion-reference-canvas')).toBeInTheDocument();
+  });
+
+  it('reorders frames by dragging and recomputes the automatic reference from the new order', async () => {
+    const stored: AnimationDocument = {
+      width: SIZE,
+      height: SIZE,
+      frames: ['a', 'b', 'c'].map((id) => ({ id, layers: [{ id: `layer-${id}`, name: id, visible: true, pixels: null }] }))
+    };
+    const { user } = await renderReadyEditor({ animationApi: createMockAnimationApi({ loadAnimation: async () => ok(stored) }) });
+    await user.click(screen.getByRole('button', { name: 'Toggle Onion Reference' }));
+    await user.click(frameButtons()[2] as HTMLElement);
+    expect(screen.getByTestId('onion-reference-canvas')).toHaveAttribute('data-reference-frame-id', 'b');
+
+    const items = within(screen.getByRole('list', { name: 'Frames' })).getAllByRole('listitem');
+    const data = new Map<string, string>();
+    const transfer = {
+      types: [FRAME_DRAG_MIME],
+      effectAllowed: 'move',
+      dropEffect: 'none',
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? ''
+    };
+    fireEvent.dragStart(items[0]!, { dataTransfer: transfer });
+    fireEvent.dragOver(items[1]!, { dataTransfer: transfer });
+    fireEvent.drop(items[1]!, { dataTransfer: transfer });
+
+    expect(Array.from(within(screen.getByRole('list', { name: 'Frames' })).getAllByRole('listitem')).map((item) => item.getAttribute('data-frame-id'))).toEqual(['b', 'a', 'c']);
+    expect(screen.getByTestId('onion-reference-canvas')).toHaveAttribute('data-reference-frame-id', 'a');
   });
 
   it('undoes frame operations', async () => {
@@ -935,6 +1076,43 @@ describe('playback, FPS and zoom', () => {
 });
 
 describe('keyboard shortcuts', () => {
+  it('navigates next/previous and creates an empty frame at the end with Ctrl shortcuts', async () => {
+    const { user } = await renderReadyEditor();
+    stroke([10, 10]);
+    await user.keyboard('{Control>}w{/Control}');
+    expect(frameButtons()).toHaveLength(2);
+    expect(frameButtons()[1]).toHaveAttribute('aria-current', 'true');
+    expect(layerNames()).toEqual(['Layer 1']);
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+
+    await user.keyboard('{Control>}w{/Control}');
+    expect(frameButtons()).toHaveLength(3);
+    expect(frameButtons()[2]).toHaveAttribute('aria-current', 'true');
+
+    await user.keyboard('{Control>}a{/Control}');
+    expect(frameButtons()[1]).toHaveAttribute('aria-current', 'true');
+    const frameCount = frameButtons().length;
+    await user.keyboard('{Control>}a{/Control}');
+    await user.keyboard('{Control>}a{/Control}');
+    expect(frameButtons()[0]).toHaveAttribute('aria-current', 'true');
+    expect(frameButtons()).toHaveLength(frameCount);
+  });
+
+  it('toggles playback with Space and keeps text inputs editable', async () => {
+    const { user } = await renderReadyEditor();
+    const play = screen.getByRole('button', { name: 'Play Animation' });
+    await user.keyboard(' ');
+    expect(screen.getByRole('button', { name: 'Stop Animation' })).toBeInTheDocument();
+    await user.keyboard(' ');
+    expect(screen.getByRole('button', { name: 'Play Animation' })).toBeInTheDocument();
+
+    const fps = screen.getByLabelText('FPS');
+    await user.click(fps);
+    await user.keyboard(' ');
+    expect(fps).toHaveFocus();
+    expect(play).toBeInTheDocument();
+  });
+
   it('duplicates, undoes, copies and pastes with Ctrl shortcuts', async () => {
     const { user } = await renderReadyEditor();
     await user.keyboard('{Control>}d{/Control}');

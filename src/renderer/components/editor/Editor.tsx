@@ -72,11 +72,24 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
       if (isTextEditingTarget(event.target)) {
         return;
       }
+      if (
+        event.key === ' ' &&
+        event.target instanceof Element &&
+        event.target.closest(
+          'button, input, select, textarea, summary, a[href], [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="option"], [role="slider"], [role="combobox"]'
+        ) !== null
+      ) {
+        return;
+      }
       if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="menu"]') !== null) {
         return;
       }
       const action = matchShortcut(event);
       if (action === null) {
+        return;
+      }
+      if (action === 'playback.toggle' && event.repeat) {
+        event.preventDefault();
         return;
       }
       event.preventDefault();
@@ -237,6 +250,8 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
               state={state}
               onColorChange={(color) => session.setColor(color)}
               onBrushSizeChange={(size) => session.setBrushSize(size)}
+              onUsePenPressureChange={(enabled) => session.setUsePenPressure(enabled)}
+              onStabilizeStrokeChange={(enabled) => session.setStabilizeStroke(enabled)}
               onEraserSizeChange={(size) => session.setEraserSize(size)}
             />
             <AssetPanel assetsApi={assetsApi} />

@@ -1,8 +1,65 @@
 import { describe, expect, it } from 'vitest';
+import { STABILIZE_SCREEN_RADIUS } from '@editor/constants';
 import { getPixel, isDrawingBlank } from '@editor/drawing/raster';
+import { StrokeStabilizer } from '@editor/drawing/stabilizer';
 import { click, drag, makeSession, paintRed, pixelAt, RED, SIZE, TRANSPARENT } from './helpers';
 
 describe('brush', () => {
+  it('trails the pointer by the rope length and ignores tremors inside it', () => {
+    const stabilizer = new StrokeStabilizer(10);
+    expect(stabilizer.push({ x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
+    // Jitter inside the rope does not move the brush at all.
+    expect(stabilizer.push({ x: 4, y: 3 })).toEqual({ x: 0, y: 0 });
+    expect(stabilizer.push({ x: -5, y: 2 })).toEqual({ x: 0, y: 0 });
+    // Beyond the rope the brush is dragged, staying exactly one rope length behind.
+    const dragged = stabilizer.push({ x: 40, y: 0 });
+    expect(dragged.x).toBeCloseTo(30);
+    expect(dragged.y).toBeCloseTo(0);
+  });
+
+  it('stops at the rope length when the stroke ends', () => {
+    const session = makeSession();
+    session.setBrushSize(2);
+    session.setColor('#00ff00');
+    session.setStabilizeStroke(true);
+    // At 800% zoom the rope is a few canvas pixels long (STABILIZE_SCREEN_RADIUS / 8).
+    session.setZoom(800);
+    session.pointerDown({ x: 2.5, y: 8.5, pointerId: 1, buttons: 1 });
+    session.pointerMove({ x: 14.5, y: 8.5, pointerId: 1, buttons: 1 });
+    session.pointerUp({ x: 14.5, y: 8.5, pointerId: 1, buttons: 0 });
+    const ropeEnd = 14.5 - STABILIZE_SCREEN_RADIUS / 8;
+    expect(pixelAt(session, Math.floor(ropeEnd) - 1, 8)).toEqual([0, 255, 0, 255]);
+    expect(pixelAt(session, 14, 8)).toEqual(TRANSPARENT);
+  });
+
+  it('stabilizes only new brush strokes and keeps the setting independent from size and color', () => {
+    const session = makeSession();
+    session.setBrushSize(6);
+    session.setColor('#00ff00');
+    session.setStabilizeStroke(true);
+    expect(session.getSnapshot().state.stabilizeStroke).toBe(true);
+    expect(session.getSnapshot().state.brushSize).toBe(6);
+    expect(session.getSnapshot().state.color).toBe('#00ff00');
+
+    session.pointerDown({ x: 2.5, y: 8.5, pointerId: 1, buttons: 1 });
+    session.pointerMove({ x: 5.5, y: 3.5, pointerId: 1, buttons: 1 });
+    session.pointerMove({ x: 8.5, y: 12.5, pointerId: 1, buttons: 1 });
+    // The line visibly lags behind the pointer while stabilizing.
+    expect(pixelAt(session, 8, 12)).toEqual(TRANSPARENT);
+    session.pointerUp({ x: 12.5, y: 8.5, pointerId: 1, buttons: 0 });
+    // The stroke is not completed up to the release point.
+    expect(pixelAt(session, 12, 8)).toEqual(TRANSPARENT);
+
+    const saved = session.createSaveRequest().document.frames[0]!.layers[0]!.pixels;
+    expect(saved).not.toBeNull();
+    expect(session.getSnapshot().state.stabilizeStroke).toBe(true);
+    expect(session.getSnapshot().canUndo).toBe(true);
+    session.undo();
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(true);
+    session.redo();
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(false);
+  });
+
   it('paints with the selected color and size on the active layer', () => {
     const session = makeSession();
     paintRed(session);

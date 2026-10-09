@@ -85,6 +85,10 @@ describe('keyboard shortcuts', () => {
     expect(matchShortcut(key('v', { ctrlKey: true }))).toBe('frame.paste');
     expect(matchShortcut(key('x', { ctrlKey: true }))).toBe('frame.cut');
     expect(matchShortcut(key('d', { ctrlKey: true }))).toBe('frame.duplicate');
+    expect(matchShortcut(key('w', { ctrlKey: true }))).toBe('frame.next');
+    expect(matchShortcut(key('a', { ctrlKey: true }))).toBe('frame.previous');
+    expect(matchShortcut(key(' '))).toBe('playback.toggle');
+    expect(matchShortcut(key('Space'))).toBe('playback.toggle');
     expect(matchShortcut(key('z', { ctrlKey: true }))).toBe('history.undo');
     expect(matchShortcut(key('z', { ctrlKey: true, shiftKey: true }))).toBe('history.redo');
     expect(matchShortcut(key('s', { ctrlKey: true }))).toBe('project.save');

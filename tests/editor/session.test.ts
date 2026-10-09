@@ -96,6 +96,40 @@ describe('thumbnails', () => {
 });
 
 describe('shortcut actions in the session', () => {
+  it('navigates to the next/previous frame and creates an empty frame at the end', () => {
+    const session = makeSession();
+    session.addFrames(2);
+    const [first, second, third] = session.getSnapshot().frames;
+    session.selectFrame(first!.id);
+
+    expect(session.runShortcut('frame.next')).toBe(true);
+    expect(session.getSnapshot().activeFrame.id).toBe(second!.id);
+    expect(session.getSnapshot().frames).toHaveLength(3);
+    expect(session.runShortcut('frame.previous')).toBe(true);
+    expect(session.getSnapshot().activeFrame.id).toBe(first!.id);
+    expect(session.runShortcut('frame.previous')).toBe(true);
+    expect(session.getSnapshot().activeFrame.id).toBe(first!.id);
+
+    session.selectFrame(third!.id);
+    expect(session.runShortcut('frame.next')).toBe(true);
+    expect(session.getSnapshot().frames).toHaveLength(4);
+    const created = session.getSnapshot().activeFrame;
+    expect(created).not.toBeNull();
+    expect(created.layers.every((layer) => layer.drawing.data === null)).toBe(true);
+    expect(session.runShortcut('history.undo')).toBe(true);
+    expect(session.getSnapshot().frames).toHaveLength(3);
+  });
+
+  it('toggles playback through the shared controller', () => {
+    const session = makeSession();
+    expect(session.getSnapshot().state.isPlaying).toBe(false);
+    expect(session.runShortcut('playback.toggle')).toBe(true);
+    expect(session.getSnapshot().state.isPlaying).toBe(true);
+    expect(session.runShortcut('playback.toggle')).toBe(true);
+    expect(session.getSnapshot().state.isPlaying).toBe(false);
+    session.dispose();
+  });
+
   it('runs frame and history actions and ignores the ones it does not own', () => {
     const session = makeSession();
     paintRed(session);

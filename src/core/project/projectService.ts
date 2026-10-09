@@ -207,7 +207,14 @@ export class ProjectService {
       }
       frames.push({ id: frame.id, layers });
     }
-    return { width: manifest.width, height: manifest.height, frames };
+    return {
+      width: manifest.width,
+      height: manifest.height,
+      frames,
+      ...(manifest.manualReferenceFrameId !== undefined
+        ? { manualReferenceFrameId: manifest.manualReferenceFrameId }
+        : {})
+    };
   }
 
   /**
@@ -227,6 +234,9 @@ export class ProjectService {
       formatVersion: ANIMATION_FORMAT_VERSION,
       width: document.width,
       height: document.height,
+      ...(document.manualReferenceFrameId !== undefined
+        ? { manualReferenceFrameId: document.manualReferenceFrameId }
+        : {}),
       frames: []
     };
     for (const frame of document.frames) {

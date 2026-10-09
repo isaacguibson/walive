@@ -8,7 +8,8 @@ import {
   DEFAULT_FPS,
   DEFAULT_ZOOM,
   MAX_CANVAS_DIMENSION,
-  MAX_CANVAS_PIXELS
+  MAX_CANVAS_PIXELS,
+  STABILIZE_SCREEN_RADIUS
 } from './constants';
 import { compositePixel } from './drawing/raster';
 import { EditorError } from './errors';
@@ -26,6 +27,7 @@ export interface EditorSessionOptions {
   height: number;
   /** Stored frames; omitted or empty creates `Frame 1 / Layer 1`. */
   frames?: readonly Frame[];
+  manualReferenceFrameId?: string | null;
   clipboard?: FrameClipboardStore;
   clock?: PlaybackClock;
   idGenerator?: () => string;
@@ -44,6 +46,8 @@ export interface EditorSnapshot {
   readonly canRedo: boolean;
   readonly canPaste: boolean;
   readonly isDirty: boolean;
+  readonly onionEnabled: boolean;
+  readonly manualReferenceFrameId: string | null;
   /** Last operation error to show to the user, if any. */
   readonly error: string | null;
 }
@@ -80,6 +84,9 @@ export class EditorSession {
   private selectedTool: ToolType = 'brush';
   private color = DEFAULT_COLOR;
   private brushSize = DEFAULT_BRUSH_SIZE;
+  private usePenPressure = false;
+  private stabilizeStroke = false;
+  private onionEnabled = false;
   private eraserSize = DEFAULT_ERASER_SIZE;
   private zoom = DEFAULT_ZOOM;
   private fps = DEFAULT_FPS;
@@ -97,6 +104,7 @@ export class EditorSession {
       width: options.width,
       height: options.height,
       ...(options.frames !== undefined ? { frames: options.frames } : {}),
+      ...(options.manualReferenceFrameId !== undefined ? { manualReferenceFrameId: options.manualReferenceFrameId } : {}),
       ...(options.idGenerator !== undefined ? { idGenerator: options.idGenerator } : {}),
       clipboard: this.clipboard
     });
@@ -156,6 +164,8 @@ export class EditorSession {
         isPlaying: this.playback.isPlaying,
         color: this.color,
         brushSize: this.brushSize,
+        usePenPressure: this.usePenPressure,
+        stabilizeStroke: this.stabilizeStroke,
         eraserSize: this.eraserSize,
         selection: this.selection
       },
@@ -166,6 +176,8 @@ export class EditorSession {
       canRedo: this.engine.canRedo,
       canPaste: clipboardValue !== null,
       isDirty: this.engine.isDirty,
+      onionEnabled: this.onionEnabled,
+      manualReferenceFrameId: this.engine.manualReferenceFrameId,
       error: this.error
     };
     return this.cached;
@@ -201,6 +213,34 @@ export class EditorSession {
     this.brushSize = size;
     this.bump();
     return true;
+  }
+
+  setUsePenPressure(enabled: boolean): void {
+    if (this.usePenPressure === enabled) {
+      return;
+    }
+    this.usePenPressure = enabled;
+    this.bump();
+  }
+
+  setStabilizeStroke(enabled: boolean): void {
+    if (this.stabilizeStroke === enabled) {
+      return;
+    }
+    this.stabilizeStroke = enabled;
+    this.bump();
+  }
+
+  setOnionEnabled(enabled: boolean): void {
+    if (this.onionEnabled === enabled) {
+      return;
+    }
+    this.onionEnabled = enabled;
+    this.bump();
+  }
+
+  setManualReferenceFrame(frameId: string | null): void {
+    this.edit(() => this.engine.setManualReferenceFrame(frameId));
   }
 
   setEraserSize(value: string | number): boolean {
@@ -309,6 +349,32 @@ export class EditorSession {
     }
   }
 
+  /** Selects the following frame, creating one empty frame at the end. */
+  nextFrame(): void {
+    if (this.activePointerId !== null) {
+      return;
+    }
+    this.playback.stop();
+    const index = this.engine.getFrameIndex(this.engine.activeFrameId);
+    if (index >= 0 && index < this.engine.getFrames().length - 1) {
+      this.selectFrame(this.engine.getFrames()[index + 1]!.id);
+    } else if (index === this.engine.getFrames().length - 1) {
+      this.addFrame();
+    }
+  }
+
+  /** Selects the preceding frame, doing nothing at the beginning of the timeline. */
+  previousFrame(): void {
+    if (this.activePointerId !== null) {
+      return;
+    }
+    this.playback.stop();
+    const index = this.engine.getFrameIndex(this.engine.activeFrameId);
+    if (index > 0) {
+      this.selectFrame(this.engine.getFrames()[index - 1]!.id);
+    }
+  }
+
   // ---- Selection ---------------------------------------------------------
 
   selectFrame(frameId: string): void {
@@ -339,6 +405,10 @@ export class EditorSession {
 
   duplicateFrame(frameId: string = this.engine.activeFrameId): void {
     this.edit(() => this.engine.duplicateFrame(frameId));
+  }
+
+  reorderFrame(frameId: string, toIndex: number): void {
+    this.edit(() => this.engine.reorderFrame(frameId, toIndex));
   }
 
   removeFrame(frameId: string = this.engine.activeFrameId): void {
@@ -444,6 +514,15 @@ export class EditorSession {
       case 'frame.duplicate':
         this.duplicateFrame();
         return true;
+      case 'frame.next':
+        this.nextFrame();
+        return true;
+      case 'frame.previous':
+        this.previousFrame();
+        return true;
+      case 'playback.toggle':
+        this.togglePlayback();
+        return true;
       case 'history.undo':
         this.undo();
         return true;
@@ -460,7 +539,12 @@ export class EditorSession {
   /** Builds the document to persist, plus a token to pass to `markSaved` once it was stored. */
   createSaveRequest(): { document: AnimationDocument; token: number } {
     return {
-      document: toAnimationDocument(this.engine.width, this.engine.height, this.engine.getFrames()),
+      document: toAnimationDocument(
+        this.engine.width,
+        this.engine.height,
+        this.engine.getFrames(),
+        this.engine.manualReferenceFrameId
+      ),
       token: this.engine.getSaveToken()
     };
   }
@@ -550,6 +634,10 @@ export class EditorSession {
         this.setColor(toHexColor(color));
       },
       getBrushSize: () => this.brushSize,
+      getUsePenPressure: () => this.usePenPressure,
+      getStabilizeStroke: () => this.stabilizeStroke,
+      // The rope keeps a constant on-screen length, whatever the zoom.
+      getStabilizeRadius: () => STABILIZE_SCREEN_RADIUS / (this.zoom / 100),
       getEraserSize: () => this.eraserSize,
       pickColor: (x, y) => {
         const pixel = compositePixel(this.engine.getActiveFrame().layers, x, y);

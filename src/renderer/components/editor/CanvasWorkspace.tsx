@@ -102,6 +102,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
   const { zoom, selectedTool, isPlaying, selection } = snapshot.state;
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const onionCanvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<CanvasRenderer | null>(null);
   const anchorRef = useRef<ZoomAnchor | null>(null);
   const zoomRef = useRef(zoom);
@@ -272,7 +273,14 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     if (point === null) {
       return null;
     }
-    return { x: point.x, y: point.y, pointerId: event.pointerId, pressure: event.pressure, buttons: event.buttons };
+    return {
+      x: point.x,
+      y: point.y,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      pressure: event.pressure,
+      buttons: event.buttons
+    };
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
@@ -436,6 +444,34 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
   }
 
   const scale = zoom / 100;
+  const activeIndex = snapshot.frames.findIndex((frame) => frame.id === snapshot.activeFrame.id);
+  const referenceId = snapshot.manualReferenceFrameId ?? snapshot.frames[activeIndex - 1]?.id ?? null;
+  const displayedReferenceId =
+    snapshot.onionEnabled && referenceId !== snapshot.activeFrame.id && snapshot.frames.some((frame) => frame.id === referenceId)
+      ? referenceId
+      : null;
+
+  // The onion reference has its own read-only canvas underneath the editable surface.
+  useEffect(() => {
+    const canvas = onionCanvasRef.current;
+    if (canvas === null || displayedReferenceId === null) {
+      return undefined;
+    }
+    const renderer = new CanvasRenderer(canvas, width, height);
+    const drawReference = () => {
+      const frame = session.engine.getFrame(displayedReferenceId);
+      if (frame !== null) {
+        renderer.render(frame);
+      }
+    };
+    drawReference();
+    const stopStructure = session.engine.subscribe(drawReference);
+    const stopContent = session.engine.subscribeContent(drawReference);
+    return () => {
+      stopStructure();
+      stopContent();
+    };
+  }, [session, width, height, displayedReferenceId]);
 
   return (
     <div className="canvas-area">
@@ -459,6 +495,17 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
           data-playing={isPlaying ? 'true' : 'false'}
           data-panning={isPanning ? 'true' : 'false'}
         >
+          {displayedReferenceId !== null && (
+            <canvas
+              ref={onionCanvasRef}
+              className="onion-reference-canvas"
+              aria-hidden="true"
+              data-testid="onion-reference-canvas"
+              data-reference-frame-id={displayedReferenceId}
+              width={width}
+              height={height}
+            />
+          )}
           <canvas
             ref={canvasRef}
             className="drawing-canvas"

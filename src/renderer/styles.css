@@ -764,6 +764,45 @@ label[for='keep-aspect-ratio'] {
   font-weight: 600;
 }
 
+.pressure-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 4px;
+  font-size: 13px;
+}
+
+.pressure-toggle {
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 20px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.pressure-toggle.is-enabled {
+  justify-content: flex-end;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.pressure-toggle-knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.pressure-help {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .field-caption {
   color: var(--muted);
   font-size: 13px;
@@ -970,11 +1009,23 @@ label[for='keep-aspect-ratio'] {
 
 .drawing-canvas {
   display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   cursor: crosshair;
   image-rendering: pixelated;
   touch-action: none;
+}
+
+.onion-reference-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.28;
+  image-rendering: pixelated;
+  pointer-events: none;
 }
 
 .canvas-frame[data-playing='true'] .drawing-canvas {
@@ -1178,6 +1229,16 @@ label[for='keep-aspect-ratio'] {
   background: rgb(108 124 255 / 18%);
 }
 
+.frame-button.is-reference {
+  border-color: var(--warning);
+  box-shadow: inset 0 0 0 1px var(--warning);
+}
+
+.frame-button.is-active.is-reference {
+  outline: 1px solid var(--warning);
+  outline-offset: 2px;
+}
+
 .frame-preview {
   display: flex;
   align-items: center;
@@ -1223,6 +1284,12 @@ label[for='keep-aspect-ratio'] {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.context-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
 .context-menu-item:hover:not(:disabled),

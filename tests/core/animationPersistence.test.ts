@@ -82,6 +82,18 @@ describe('animation persistence', () => {
     expect(first?.[1]?.pixels).toBeNull();
   });
 
+  it('round-trips a manual onion reference and accepts older manifests without one', async () => {
+    const { service, projectPath } = await openSmallProject();
+    await service.saveAnimation(document({ manualReferenceFrameId: 'frame-1' }));
+
+    expect((await service.loadAnimation())?.manualReferenceFrameId).toBe('frame-1');
+    const manifestPath = path.join(projectPath, 'drawings', 'animation.json');
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+    delete manifest.manualReferenceFrameId;
+    await fs.writeFile(manifestPath, JSON.stringify(manifest));
+    expect((await service.loadAnimation())?.manualReferenceFrameId).toBeUndefined();
+  });
+
   it('stores the data inside the project drawings directory only', async () => {
     const { service, projectPath } = await openSmallProject();
     await service.saveAnimation(document());
@@ -133,7 +145,8 @@ describe('animation persistence', () => {
           { id: 'same', layers: [{ id: 'l2', name: 'x', visible: true, pixels: null }] }
         ]
       }),
-      document({ frames: [{ id: '../evil', layers: [{ id: 'l', name: 'x', visible: true, pixels: null }] }] })
+      document({ frames: [{ id: '../evil', layers: [{ id: 'l', name: 'x', visible: true, pixels: null }] }] }),
+      document({ manualReferenceFrameId: 'missing-frame' })
     ];
     for (const input of bad) {
       expect((await rejectionOf(service.saveAnimation(input))).code).toBe('INVALID_ANIMATION_DATA');

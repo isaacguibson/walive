@@ -4,10 +4,16 @@ import type { Frame } from '../model';
 import type { AnimationDocument } from '@shared/types/animation';
 
 /** Converts the in-memory animation to the transport/storage representation. Blank layers carry no pixels. */
-export function toAnimationDocument(width: number, height: number, frames: readonly Frame[]): AnimationDocument {
+export function toAnimationDocument(
+  width: number,
+  height: number,
+  frames: readonly Frame[],
+  manualReferenceFrameId: string | null = null
+): AnimationDocument {
   return {
     width,
     height,
+    manualReferenceFrameId,
     frames: frames.map((frame) => ({
       id: frame.id,
       layers: frame.layers.map((layer) => {

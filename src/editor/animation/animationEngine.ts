@@ -15,6 +15,7 @@ interface Structure {
   readonly frames: readonly Frame[];
   readonly activeFrameId: string;
   readonly activeLayerId: string;
+  readonly manualReferenceFrameId?: string | null;
 }
 
 /** Swaps the whole frame list/selection; the before/after values are plain references. */
@@ -40,6 +41,7 @@ export interface AnimationEngineOptions {
   height: number;
   /** Initial content. When empty or omitted a single blank frame is created (HU_00004 §58). */
   frames?: readonly Frame[];
+  manualReferenceFrameId?: string | null;
   history?: HistoryManager;
   clipboard?: FrameClipboardStore;
   idGenerator?: () => string;
@@ -62,6 +64,7 @@ export class AnimationEngine {
   private frames: readonly Frame[];
   private activeFrame: string;
   private activeLayer: string;
+  private manualReferenceFrame: string | null;
   private readonly newId: () => string;
   private readonly listeners = new Set<Listener>();
   private readonly contentListeners = new Set<Listener>();
@@ -81,6 +84,10 @@ export class AnimationEngine {
     const first = initial[0] as Frame;
     this.activeFrame = first.id;
     this.activeLayer = (first.layers[0] as Layer).id;
+    this.manualReferenceFrame =
+      options.manualReferenceFrameId !== undefined && initial.some((frame) => frame.id === options.manualReferenceFrameId)
+        ? options.manualReferenceFrameId
+        : null;
   }
 
   // ---- Queries -----------------------------------------------------------
@@ -112,6 +119,26 @@ export class AnimationEngine {
 
   get activeLayerId(): string {
     return this.activeLayer;
+  }
+
+  get manualReferenceFrameId(): string | null {
+    return this.manualReferenceFrame;
+  }
+
+  /** Sets or clears the single manual onion-reference designation. */
+  setManualReferenceFrame(frameId: string | null): void {
+    if (frameId !== null) {
+      this.requireFrame(frameId);
+    }
+    if (this.manualReferenceFrame === frameId) {
+      return;
+    }
+    this.commit('Set onion reference', {
+      frames: this.frames,
+      activeFrameId: this.activeFrame,
+      activeLayerId: this.activeLayer,
+      manualReferenceFrameId: frameId
+    });
   }
 
   get isDirty(): boolean {
@@ -212,6 +239,27 @@ export class AnimationEngine {
       activeLayerId: this.layerAt(copy, hint).id
     });
     return copy;
+  }
+
+  /** Moves an existing frame to an index in the current timeline order. */
+  reorderFrame(frameId: string, toIndex: number): void {
+    this.requireFrame(frameId);
+    if (!Number.isInteger(toIndex)) {
+      throw new EditorError('INVALID_VALUE', 'The frame position is not valid.');
+    }
+    const from = this.getFrameIndex(frameId);
+    const to = Math.min(this.frames.length - 1, Math.max(0, toIndex));
+    if (from === to) {
+      return;
+    }
+    const frames = [...this.frames];
+    const [moved] = frames.splice(from, 1);
+    frames.splice(to, 0, moved as Frame);
+    this.commit('Reorder frame', {
+      frames,
+      activeFrameId: this.activeFrame,
+      activeLayerId: this.activeLayer
+    });
   }
 
   /** Removes a frame, selecting the next (else previous) one. An emptied animation gets a new blank frame. */
@@ -457,18 +505,29 @@ export class AnimationEngine {
 
   private commit(label: string, next: Structure): void {
     const before = this.capture();
-    this.history.execute(new StructureCommand(label, before, next, (structure) => this.restore(structure)));
+    const after = {
+      ...next,
+      manualReferenceFrameId:
+        next.manualReferenceFrameId !== undefined ? next.manualReferenceFrameId : this.manualReferenceFrame
+    };
+    this.history.execute(new StructureCommand(label, before, after, (structure) => this.restore(structure)));
     this.emit();
   }
 
   private capture(): Structure {
-    return { frames: this.frames, activeFrameId: this.activeFrame, activeLayerId: this.activeLayer };
+    return {
+      frames: this.frames,
+      activeFrameId: this.activeFrame,
+      activeLayerId: this.activeLayer,
+      manualReferenceFrameId: this.manualReferenceFrame
+    };
   }
 
   private restore(structure: Structure): void {
     this.frames = structure.frames;
     this.activeFrame = structure.activeFrameId;
     this.activeLayer = structure.activeLayerId;
+    this.manualReferenceFrame = structure.manualReferenceFrameId ?? null;
   }
 
   private emit(): void {
@@ -555,13 +614,28 @@ export class AnimationEngine {
     const remaining = this.frames.filter((frame) => frame.id !== frameId);
     if (remaining.length === 0) {
       const blank = this.createBlankFrame();
-      return { frames: [blank], activeFrameId: blank.id, activeLayerId: (blank.layers[0] as Layer).id };
+      return {
+        frames: [blank],
+        activeFrameId: blank.id,
+        activeLayerId: (blank.layers[0] as Layer).id,
+        manualReferenceFrameId: this.manualReferenceFrame === frameId ? null : this.manualReferenceFrame
+      };
     }
     // Prefer the frame that followed the removed one, otherwise the previous one.
     const next = (remaining[index] ?? remaining[index - 1]) as Frame;
     if (frameId !== this.activeFrame) {
-      return { frames: remaining, activeFrameId: this.activeFrame, activeLayerId: this.activeLayer };
+      return {
+        frames: remaining,
+        activeFrameId: this.activeFrame,
+        activeLayerId: this.activeLayer,
+        manualReferenceFrameId: this.manualReferenceFrame === frameId ? null : this.manualReferenceFrame
+      };
     }
-    return { frames: remaining, activeFrameId: next.id, activeLayerId: this.layerAt(next, this.activeLayerIndex()).id };
+    return {
+      frames: remaining,
+      activeFrameId: next.id,
+      activeLayerId: this.layerAt(next, this.activeLayerIndex()).id,
+      manualReferenceFrameId: this.manualReferenceFrame === frameId ? null : this.manualReferenceFrame
+    };
   }
 }

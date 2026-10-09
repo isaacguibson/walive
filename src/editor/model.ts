@@ -66,6 +66,8 @@ export interface EditorState {
   /** Active drawing color as `#rrggbb`. Shared by the tools that use a color. */
   color: string;
   brushSize: number;
+  usePenPressure: boolean;
+  stabilizeStroke: boolean;
   eraserSize: number;
   /** Rectangle chosen with the Selection tool, in canvas pixels. */
   selection: Rect | null;

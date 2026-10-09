@@ -14,11 +14,23 @@ export type StrokeMode = { readonly kind: 'paint'; readonly color: Rgb } | { rea
  * nothing could change. Only the given drawing is touched.
  */
 export function paintSegment(drawing: DrawingData, from: Point, to: Point, size: number, mode: StrokeMode): Rect | null {
+  return paintVariableSegment(drawing, from, to, size, size, mode);
+}
+
+/** Draws a round-capped segment whose diameter changes linearly with position. */
+export function paintVariableSegment(
+  drawing: DrawingData,
+  from: Point,
+  to: Point,
+  startSize: number,
+  endSize: number,
+  mode: StrokeMode
+): Rect | null {
   if (mode.kind === 'erase' && drawing.data === null) {
     return null;
   }
-  const radius = size / 2;
-  const pad = radius + 1;
+  const maxRadius = Math.max(startSize, endSize, 1) / 2;
+  const pad = maxRadius + 1;
   const bounds = clipRect(
     {
       x: Math.floor(Math.min(from.x, to.x) - pad),
@@ -37,9 +49,6 @@ export function paintSegment(drawing: DrawingData, from: Point, to: Point, size:
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const lengthSquared = dx * dx + dy * dy;
-  const reach = radius + 0.5;
-  const reachSquared = reach * reach;
-
   for (let y = bounds.y; y < bounds.y + bounds.height; y += 1) {
     for (let x = bounds.x; x < bounds.x + bounds.width; x += 1) {
       const px = x + 0.5;
@@ -48,6 +57,9 @@ export function paintSegment(drawing: DrawingData, from: Point, to: Point, size:
       if (lengthSquared > 0) {
         t = Math.min(1, Math.max(0, ((px - from.x) * dx + (py - from.y) * dy) / lengthSquared));
       }
+      const radius = (Math.max(1, startSize) + (Math.max(1, endSize) - Math.max(1, startSize)) * t) / 2;
+      const reach = radius + 0.5;
+      const reachSquared = reach * reach;
       const nx = from.x + t * dx - px;
       const ny = from.y + t * dy - py;
       const distanceSquared = nx * nx + ny * ny;

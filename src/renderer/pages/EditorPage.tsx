@@ -52,7 +52,14 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
           result.value === null ? undefined : framesFromAnimationDocument(result.value, width, height);
         setLoad({
           status: 'ready',
-          session: new EditorSession({ width, height, ...(frames !== undefined ? { frames } : {}) })
+          session: new EditorSession({
+            width,
+            height,
+            ...(frames !== undefined ? { frames } : {}),
+            ...(result.value !== null && result.value.manualReferenceFrameId !== undefined
+              ? { manualReferenceFrameId: result.value.manualReferenceFrameId }
+              : {})
+          })
         });
       } catch (error) {
         setLoad({

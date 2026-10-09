@@ -40,6 +40,8 @@ export interface AnimationManifest {
   width: number;
   height: number;
   frames: StoredFrame[];
+  /** Optional in format v1; old projects simply have no manual reference. */
+  manualReferenceFrameId?: string | null;
 }
 
 function invalid(message = 'The animation data is not valid.'): AppError {
@@ -138,7 +140,22 @@ export function parseAnimationDocument(input: unknown): AnimationDocument {
     return { id, layers };
   });
 
-  return { width, height, frames };
+  let manualReferenceFrameId: string | null | undefined;
+  if (input.manualReferenceFrameId !== undefined) {
+    if (input.manualReferenceFrameId !== null && typeof input.manualReferenceFrameId !== 'string') {
+      throw invalid();
+    }
+    manualReferenceFrameId = input.manualReferenceFrameId === null ? null : parseId(input.manualReferenceFrameId);
+    if (manualReferenceFrameId !== null && !frames.some((frame) => frame.id === manualReferenceFrameId)) {
+      throw invalid('The onion reference frame does not exist.');
+    }
+  }
+  return {
+    width,
+    height,
+    frames,
+    ...(manualReferenceFrameId !== undefined ? { manualReferenceFrameId } : {})
+  };
 }
 
 /** Validates the stored manifest read from disk. */
@@ -168,7 +185,23 @@ export function parseAnimationManifest(input: unknown): AnimationManifest {
     });
     return { id: parseId(rawFrame.id), layers };
   });
-  return { formatVersion: ANIMATION_FORMAT_VERSION, width, height, frames };
+  let manualReferenceFrameId: string | null | undefined;
+  if (input.manualReferenceFrameId !== undefined) {
+    if (input.manualReferenceFrameId !== null && typeof input.manualReferenceFrameId !== 'string') {
+      throw invalid();
+    }
+    manualReferenceFrameId = input.manualReferenceFrameId === null ? null : parseId(input.manualReferenceFrameId);
+    if (manualReferenceFrameId !== null && !frames.some((frame) => frame.id === manualReferenceFrameId)) {
+      throw invalid('The onion reference frame does not exist.');
+    }
+  }
+  return {
+    formatVersion: ANIMATION_FORMAT_VERSION,
+    width,
+    height,
+    frames,
+    ...(manualReferenceFrameId !== undefined ? { manualReferenceFrameId } : {})
+  };
 }
 
 /** Content-addressed file name: identical layers share one file, changed layers never overwrite old data. */

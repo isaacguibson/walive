@@ -28,7 +28,8 @@ export type IconName =
   | 'image'
   | 'music'
   | 'file'
-  | 'edit';
+  | 'edit'
+  | 'onion';
 
 const PATHS: Record<IconName, readonly string[]> = {
   brush: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
@@ -114,7 +115,8 @@ const PATHS: Record<IconName, readonly string[]> = {
   ],
   music: ['M9 18V5l12-2v13', 'M3 18a3 3 0 1 0 6 0 3 3 0 1 0-6 0', 'M15 16a3 3 0 1 0 6 0 3 3 0 1 0-6 0'],
   file: ['M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z', 'M14 2v6h6'],
-  edit: ['M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z']
+  edit: ['M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z'],
+  onion: ['M12 2v2', 'M8 6a6 6 0 1 0 8 0', 'M6 5 4.5 3.5', 'M18 5l1.5-1.5', 'M4 12H2', 'M22 12h-2', 'M8 11a4 4 0 1 0 8 0', 'M10 20h4']
 };
 
 const FILLED: ReadonlySet<IconName> = new Set<IconName>(['play', 'stop']);

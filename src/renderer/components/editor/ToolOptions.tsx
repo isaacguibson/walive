@@ -8,6 +8,8 @@ interface ToolOptionsProps {
   state: EditorState;
   onColorChange(color: string): void;
   onBrushSizeChange(size: string): boolean;
+  onUsePenPressureChange(enabled: boolean): void;
+  onStabilizeStrokeChange(enabled: boolean): void;
   onEraserSizeChange(size: string): boolean;
 }
 
@@ -15,11 +17,12 @@ interface SizeFieldProps {
   id: string;
   label: string;
   value: number;
+  disabled?: boolean;
   onCommit(value: string): boolean;
 }
 
 /** Number input that only commits valid sizes and restores the last valid one on blur. */
-function SizeField({ id, label, value, onCommit }: SizeFieldProps) {
+function SizeField({ id, label, value, onCommit, disabled = false }: SizeFieldProps) {
   const [draft, setDraft] = useState(String(value));
   const invalid = parseToolSize(draft) === null;
 
@@ -36,6 +39,7 @@ function SizeField({ id, label, value, onCommit }: SizeFieldProps) {
           type="text"
           inputMode="numeric"
           value={draft}
+          disabled={disabled}
           aria-invalid={invalid}
           aria-describedby={invalid ? `${id}-error` : undefined}
           onChange={(event) => {
@@ -56,7 +60,14 @@ function SizeField({ id, label, value, onCommit }: SizeFieldProps) {
 }
 
 /** Upper right section: properties of the selected tool. */
-export function ToolOptions({ state, onColorChange, onBrushSizeChange, onEraserSizeChange }: ToolOptionsProps) {
+export function ToolOptions({
+  state,
+  onColorChange,
+  onBrushSizeChange,
+  onUsePenPressureChange,
+  onStabilizeStrokeChange,
+  onEraserSizeChange
+}: ToolOptionsProps) {
   const tool = TOOL_DEFINITIONS.find((candidate) => candidate.id === state.selectedTool);
   const usesColor = state.selectedTool === 'brush' || state.selectedTool === 'fill';
 
@@ -66,7 +77,39 @@ export function ToolOptions({ state, onColorChange, onBrushSizeChange, onEraserS
       <p className="tool-options-name">{tool?.name}</p>
 
       {state.selectedTool === 'brush' && (
-        <SizeField id="brush-size" label="Size" value={state.brushSize} onCommit={onBrushSizeChange} />
+        <>
+          <SizeField id="brush-size" label="Size" value={state.brushSize} onCommit={onBrushSizeChange} disabled={state.usePenPressure} />
+          <div className="pressure-toggle-row">
+            <button
+              type="button"
+              role="switch"
+              aria-label="Use Pen Pressure"
+              aria-checked={state.usePenPressure}
+              title="Use pen pressure to control brush size"
+              className={state.usePenPressure ? 'pressure-toggle is-enabled' : 'pressure-toggle'}
+              onClick={() => onUsePenPressureChange(!state.usePenPressure)}
+            >
+              <span className="pressure-toggle-knob" />
+            </button>
+            <span>Use Pen Pressure</span>
+          </div>
+          <p className="pressure-help muted">Requires a pressure-sensitive pen. Mouse input uses the configured size.</p>
+          <div className="pressure-toggle-row">
+            <button
+              type="button"
+              role="switch"
+              aria-label="Stabilize Stroke"
+              aria-checked={state.stabilizeStroke}
+              title="Smooth brush strokes to reduce unintended tremors"
+              className={state.stabilizeStroke ? 'pressure-toggle is-enabled' : 'pressure-toggle'}
+              onClick={() => onStabilizeStrokeChange(!state.stabilizeStroke)}
+            >
+              <span className="pressure-toggle-knob" />
+            </button>
+            <span>Stabilize Stroke</span>
+          </div>
+          <p className="pressure-help muted">Smooths brush movement to reduce unintended tremors.</p>
+        </>
       )}
       {state.selectedTool === 'eraser' && (
         <SizeField id="eraser-size" label="Size" value={state.eraserSize} onCommit={onEraserSizeChange} />

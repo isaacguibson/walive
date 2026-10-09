@@ -5,6 +5,7 @@ export interface ToolPointerEvent {
   readonly x: number;
   readonly y: number;
   readonly pointerId: number;
+  readonly pointerType?: string;
   readonly pressure?: number;
   /** Pressed buttons bitmask. `0` while a gesture is active means the button was released elsewhere. */
   readonly buttons?: number;
@@ -25,6 +26,10 @@ export interface ToolContext {
   getColor(): Rgb;
   setColor(color: Rgb): void;
   getBrushSize(): number;
+  getUsePenPressure(): boolean;
+  getStabilizeStroke(): boolean;
+  /** Rope length of the stroke stabilizer, in canvas pixels. */
+  getStabilizeRadius(): number;
   getEraserSize(): number;
   /** Color of the visible canvas at a pixel; `null` when transparent. */
   pickColor(x: number, y: number): Rgb | null;
