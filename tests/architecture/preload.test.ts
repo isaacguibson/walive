@@ -10,11 +10,11 @@ vi.mock('electron', () => ({
 
 type Api = Record<string, (...args: unknown[]) => Promise<unknown>>;
 
-async function loadFullApi(): Promise<{ project: Api; animation: Api }> {
+async function loadFullApi(): Promise<{ project: Api; animation: Api; assets: Api }> {
   vi.resetModules();
   exposeInMainWorld.mockClear();
   await import('../../src/preload/preload');
-  const [name, api] = exposeInMainWorld.mock.calls[0] as [string, { project: Api; animation: Api }];
+  const [name, api] = exposeInMainWorld.mock.calls[0] as [string, { project: Api; animation: Api; assets: Api }];
   expect(name).toBe('api');
   return api;
 }
@@ -29,11 +29,12 @@ describe('preload API', () => {
     invoke.mockResolvedValue({ ok: true, value: undefined });
   });
 
-  it('exposes a single "api" object with only the project and animation operations', async () => {
-    const { project, animation } = await loadFullApi();
+  it('exposes a single "api" object with only the project, animation and asset operations', async () => {
+    const { project, animation, assets } = await loadFullApi();
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [, api] = exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
-    expect(Object.keys(api).sort()).toEqual(['animation', 'project']);
+    expect(Object.keys(api).sort()).toEqual(['animation', 'assets', 'project']);
+    expect(Object.keys(assets).sort()).toEqual(['deleteAsset', 'importAssets', 'listAssets', 'readAssetImage', 'renameAsset']);
     expect(Object.keys(animation).sort()).toEqual(['loadAnimation', 'saveAnimation']);
     expect(Object.keys(project).sort()).toEqual([
       'closeProject',
@@ -75,6 +76,22 @@ describe('preload API', () => {
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.loadAnimation, undefined],
       [IPC_CHANNELS.saveAnimation, { document }]
+    ]);
+  });
+
+  it('routes asset operations through their explicit IPC channels', async () => {
+    const { assets } = await loadFullApi();
+    await assets['listAssets']?.();
+    await assets['readAssetImage']?.('assets/images/a.png');
+    await assets['importAssets']?.();
+    await assets['renameAsset']?.('assets/images/a.png', 'b');
+    await assets['deleteAsset']?.('assets/images/a.png');
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.listAssets, undefined],
+      [IPC_CHANNELS.readAssetImage, { assetId: 'assets/images/a.png' }],
+      [IPC_CHANNELS.importAssets, undefined],
+      [IPC_CHANNELS.renameAsset, { assetId: 'assets/images/a.png', newName: 'b' }],
+      [IPC_CHANNELS.deleteAsset, { assetId: 'assets/images/a.png' }]
     ]);
   });
 

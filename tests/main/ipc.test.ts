@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { JsonRecentProjectRepository } from '@core/application/jsonRecentProjectRepository';
 import { ProjectApplication } from '@core/application/projectApplication';
@@ -7,12 +8,12 @@ import { silentLogger } from '@core/logger';
 import { ProjectService } from '@core/project/projectService';
 import { ALLOWED_IPC_CHANNELS, IPC_CHANNELS } from '@shared/ipc/channels';
 import type { IpcResult } from '@shared/types/errors';
-import { registerIpcHandlers, type DirectoryPicker } from '../../src/main/ipc/registerIpcHandlers';
+import { registerIpcHandlers, type AssetFilePicker, type DirectoryPicker } from '../../src/main/ipc/registerIpcHandlers';
 import { makeTempDir } from '../helpers/tempDir';
 
 type Listener = (event: unknown, payload?: unknown) => unknown;
 
-async function setup(pickResult: string | null = null) {
+async function setup(pickResult: string | null = null, pickedFiles: string[] = []) {
   const root = await makeTempDir();
   const projects = new ProjectService();
   const recents = new RecentProjectsService(new JsonRecentProjectRepository(path.join(root, 'state.json')), projects);
@@ -21,10 +22,13 @@ async function setup(pickResult: string | null = null) {
   const handlers = new Map<string, Listener>();
   const pick = vi.fn(async () => pickResult);
   const directoryPicker: DirectoryPicker = { pickDirectory: pick };
+  const pickFiles = vi.fn(async () => pickedFiles);
+  const assetPicker: AssetFilePicker = { pickFiles };
   registerIpcHandlers({
     ipc: { handle: (channel, listener) => void handlers.set(channel, listener) },
     application,
     directoryPicker,
+    assetPicker,
     logger: silentLogger
   });
 
@@ -36,7 +40,7 @@ async function setup(pickResult: string | null = null) {
     return (await handler({}, payload)) as IpcResult<T>;
   }
 
-  return { root, handlers, invoke, pick, projects };
+  return { root, handlers, invoke, pick, pickFiles, projects };
 }
 
 describe('IPC handlers', () => {
@@ -46,6 +50,11 @@ describe('IPC handlers', () => {
       [
         'animation:load',
         'animation:save',
+        'assets:delete',
+        'assets:import',
+        'assets:list',
+        'assets:read-image',
+        'assets:rename',
         'project:close',
         'project:create',
         'project:get-recent',
@@ -159,5 +168,45 @@ describe('IPC handlers', () => {
 
     expect(await invoke(IPC_CHANNELS.removeRecentProject, { projectId })).toEqual({ ok: true, value: undefined });
     expect(await invoke(IPC_CHANNELS.getRecentProjects)).toEqual({ ok: true, value: [] });
+  });
+
+  it('manages project assets through IPC, with the file dialog shown only in the main process', async () => {
+    const sourceDir = await makeTempDir('animation-studio-sources-');
+    const sourceFile = path.join(sourceDir, 'hero.png');
+    await writeFile(sourceFile, 'x');
+    const { invoke, root, pickFiles } = await setup(null, [sourceFile]);
+
+    expect(await invoke(IPC_CHANNELS.listAssets)).toMatchObject({ ok: false, error: { code: 'NO_PROJECT_OPEN' } });
+    await invoke(IPC_CHANNELS.createProject, { name: 'Assets', location: root });
+
+    const imported = await invoke<{ imported: { id: string }[]; skipped: unknown[] }>(IPC_CHANNELS.importAssets);
+    expect(pickFiles).toHaveBeenCalledOnce();
+    expect(imported).toMatchObject({ ok: true, value: { imported: [{ id: 'assets/images/hero.png' }], skipped: [] } });
+
+    expect(await invoke(IPC_CHANNELS.listAssets)).toMatchObject({ ok: true, value: [{ name: 'hero.png', type: 'image' }] });
+    expect(await invoke(IPC_CHANNELS.renameAsset, { assetId: 'assets/images/hero.png', newName: 'villain' })).toMatchObject({
+      ok: true,
+      value: { name: 'villain.png' }
+    });
+    expect(await invoke(IPC_CHANNELS.deleteAsset, { assetId: 'assets/images/villain.png' })).toEqual({ ok: true, value: undefined });
+    expect(await invoke(IPC_CHANNELS.listAssets)).toEqual({ ok: true, value: [] });
+  });
+
+  it('does not import anything when the asset dialog is cancelled', async () => {
+    const { invoke, root } = await setup(null, []);
+    await invoke(IPC_CHANNELS.createProject, { name: 'Assets', location: root });
+    expect(await invoke(IPC_CHANNELS.importAssets)).toEqual({ ok: true, value: { imported: [], skipped: [] } });
+  });
+
+  it('rejects malformed asset payloads', async () => {
+    const { invoke } = await setup();
+    for (const [channel, payload] of [
+      [IPC_CHANNELS.renameAsset, undefined],
+      [IPC_CHANNELS.renameAsset, { assetId: 1, newName: 'x' }],
+      [IPC_CHANNELS.renameAsset, { assetId: 'a' }],
+      [IPC_CHANNELS.deleteAsset, {}]
+    ] as const) {
+      expect(await invoke(channel, payload)).toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } });
+    }
   });
 });

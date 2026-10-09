@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
-import type { AnimationAPI, ProjectAPI } from '@shared/types/api';
+import type { AnimationAPI, AssetsAPI, ProjectAPI } from '@shared/types/api';
+import type { ProjectAsset } from '@shared/types/assets';
 import type { IpcResult } from '@shared/types/errors';
 import type { ProjectMetadata, RecentProject } from '@shared/types/project';
 
@@ -48,6 +49,30 @@ export function createMockApi(overrides: Partial<ProjectAPI> = {}): MockProjectA
     removeRecentProject: vi.fn<ProjectAPI['removeRecentProject']>(async () => ok(undefined)),
     closeProject: vi.fn<ProjectAPI['closeProject']>(async () => ok(undefined)),
     selectDirectory: vi.fn<ProjectAPI['selectDirectory']>(async () => ok('/chosen/location'))
+  };
+  for (const [key, impl] of Object.entries(overrides)) {
+    (api as Record<string, unknown>)[key] = vi.fn(impl as (...args: never[]) => unknown);
+  }
+  return api;
+}
+
+export type MockAssetsApi = { [K in keyof AssetsAPI]: ReturnType<typeof vi.fn<AssetsAPI[K]>> };
+
+/** A mock asset API; by default the project has no assets and every operation succeeds. */
+export function createMockAssetsApi(overrides: Partial<AssetsAPI> = {}): MockAssetsApi {
+  const placeholder: ProjectAsset = {
+    id: 'assets/images/new.png',
+    name: 'new.png',
+    type: 'image',
+    relativePath: 'assets/images/new.png',
+    extension: 'png'
+  };
+  const api: MockAssetsApi = {
+    listAssets: vi.fn<AssetsAPI['listAssets']>(async () => ok([])),
+    readAssetImage: vi.fn<AssetsAPI['readAssetImage']>(async () => ok('data:image/png;base64,')),
+    importAssets: vi.fn<AssetsAPI['importAssets']>(async () => ok({ imported: [], skipped: [] })),
+    renameAsset: vi.fn<AssetsAPI['renameAsset']>(async () => ok(placeholder)),
+    deleteAsset: vi.fn<AssetsAPI['deleteAsset']>(async () => ok(undefined))
   };
   for (const [key, impl] of Object.entries(overrides)) {
     (api as Record<string, unknown>)[key] = vi.fn(impl as (...args: never[]) => unknown);

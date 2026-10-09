@@ -28,6 +28,7 @@ if (typeof window !== 'undefined') {
     drawImage: () => undefined,
     putImageData: () => undefined,
     createImageData: (width: number, height: number) => new ImageData(width, height),
+    getImageData: (_x: number, _y: number, width: number, height: number) => new ImageData(width, height),
     fillRect: () => undefined
   };
   HTMLCanvasElement.prototype.getContext = function getContext() {

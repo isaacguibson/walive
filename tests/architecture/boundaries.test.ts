@@ -73,7 +73,10 @@ describe('process boundaries', () => {
 
   it('native dialogs are only used by the main process', () => {
     const users = sourceFiles(SRC).filter((file) => /showOpenDialog|showSaveDialog|\bdialog\b.*from 'electron'/.test(readFileSync(file, 'utf8')));
-    expect(users.map((file) => path.relative(SRC, file))).toEqual([path.join('main', 'services', 'directoryPicker.ts')]);
+    expect(users.map((file) => path.relative(SRC, file)).sort()).toEqual([
+      path.join('main', 'services', 'assetFilePicker.ts'),
+      path.join('main', 'services', 'directoryPicker.ts')
+    ]);
   });
 
   it('only the main process entry creates windows, with secure preferences', () => {

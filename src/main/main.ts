@@ -6,6 +6,7 @@ import { RecentProjectsService } from '@core/application/recentProjectsService';
 import { consoleLogger } from '@core/logger';
 import { ProjectService } from '@core/project/projectService';
 import { registerIpcHandlers } from './ipc/registerIpcHandlers';
+import { ElectronAssetFilePicker } from './services/assetFilePicker';
 import { ElectronDirectoryPicker } from './services/directoryPicker';
 import { createWindowOptions } from './windowOptions';
 
@@ -58,6 +59,7 @@ function bootstrap(): void {
     ipc: ipcMain,
     application,
     directoryPicker: new ElectronDirectoryPicker(),
+    assetPicker: new ElectronAssetFilePicker(),
     logger: consoleLogger
   });
 

@@ -5,6 +5,10 @@ export function createLayer(id: string, name: string, width: number, height: num
   return { id, name, visible: true, drawing: createDrawing(width, height) };
 }
 
+export function createLayerFromDrawing(id: string, name: string, drawing: Layer['drawing']): Layer {
+  return { id, name, visible: true, drawing };
+}
+
 /** Deep copy of a layer (independent pixels) under a new identifier. */
 export function cloneLayer(layer: Layer, id: string): Layer {
   return { id, name: layer.name, visible: layer.visible, drawing: cloneDrawing(layer.drawing) };

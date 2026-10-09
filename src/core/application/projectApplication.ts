@@ -1,8 +1,10 @@
 import type { RecentProjectsService } from './recentProjectsService';
+import { AssetService } from '../assets/assetService';
 import { describeError, silentLogger, type Logger } from '../logger';
 import type { ProjectService } from '../project/projectService';
 import type { OpenProject } from '../project/types';
 import type { AnimationDocument } from '@shared/types/animation';
+import type { AssetImportResult, ProjectAsset } from '@shared/types/assets';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from '@shared/types/project';
 
 /**
@@ -11,11 +13,15 @@ import type { ProjectCanvas, ProjectMetadata, RecentProject } from '@shared/type
  * project registry so callers never coordinate the two themselves.
  */
 export class ProjectApplication {
+  private readonly assets: AssetService;
+
   constructor(
     private readonly projects: ProjectService,
     private readonly recents: RecentProjectsService,
     private readonly logger: Logger = silentLogger
-  ) {}
+  ) {
+    this.assets = new AssetService({ getProjectPath: () => this.projects.getCurrentProject()?.path ?? null });
+  }
 
   async createProject(name: string, location: string, canvas?: ProjectCanvas): Promise<ProjectMetadata> {
     this.logger.info('Project creation started');
@@ -70,6 +76,26 @@ export class ProjectApplication {
     }
   }
 
+  listAssets(): Promise<ProjectAsset[]> {
+    return this.runAssetOperation('Asset list', () => this.assets.listAssets());
+  }
+
+  readAssetImage(assetId: string): Promise<string> {
+    return this.runAssetOperation('Asset image read', () => this.assets.readAssetImage(assetId));
+  }
+
+  importAssets(sourcePaths: readonly string[]): Promise<AssetImportResult> {
+    return this.runAssetOperation('Asset import', () => this.assets.importAssets(sourcePaths));
+  }
+
+  renameAsset(assetId: string, newName: string): Promise<ProjectAsset> {
+    return this.runAssetOperation('Asset rename', () => this.assets.renameAsset(assetId, newName));
+  }
+
+  deleteAsset(assetId: string): Promise<void> {
+    return this.runAssetOperation('Asset delete', () => this.assets.deleteAsset(assetId));
+  }
+
   getRecentProjects(): Promise<RecentProject[]> {
     return this.recents.list();
   }
@@ -77,6 +103,15 @@ export class ProjectApplication {
   async removeRecentProject(projectId: string): Promise<void> {
     await this.recents.remove(projectId);
     this.logger.info('Recent project removed', { projectId });
+  }
+
+  private async runAssetOperation<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      this.logger.warn(`${label} failed`, describeError(error));
+      throw error;
+    }
   }
 
   /** A failure to remember a project must not prevent using it. */

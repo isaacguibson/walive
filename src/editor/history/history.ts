@@ -17,6 +17,9 @@ export interface Command {
   undo(): void;
 }
 
+/** Room reserved in a token for `touch` counts. */
+const TOUCH_RANGE = 1_000_000;
+
 interface HistoryEntry {
   readonly id: number;
   readonly command: Command;
@@ -33,6 +36,8 @@ export class HistoryManager {
   /** Token of the state that precedes the oldest remembered command. */
   private baseToken = 0;
   private savedToken = 0;
+  /** Edits applied to the current state without a command (see `touch`). */
+  private touches = 0;
 
   constructor(private readonly limit: number = MAX_HISTORY_ENTRIES) {}
 
@@ -46,6 +51,7 @@ export class HistoryManager {
   record(command: Command): void {
     this.undoStack.push({ id: this.nextId, command });
     this.nextId += 1;
+    this.touches = 0;
     this.redoStack = [];
     while (this.undoStack.length > this.limit) {
       const dropped = this.undoStack.shift() as HistoryEntry;
@@ -59,6 +65,7 @@ export class HistoryManager {
       return null;
     }
     entry.command.undo();
+    this.touches = 0;
     this.redoStack.push(entry);
     return entry.command;
   }
@@ -69,6 +76,7 @@ export class HistoryManager {
       return null;
     }
     entry.command.execute();
+    this.touches = 0;
     this.undoStack.push(entry);
     return entry.command;
   }
@@ -84,7 +92,15 @@ export class HistoryManager {
   /** Identifies the current document state; changes whenever a command is applied, undone or redone. */
   getToken(): number {
     const top = this.undoStack[this.undoStack.length - 1];
-    return top === undefined ? this.baseToken : top.id;
+    return (top === undefined ? this.baseToken : top.id) * TOUCH_RANGE + this.touches;
+  }
+
+  /**
+   * Marks the current state as modified by an edit that is not a command (the
+   * live repositioning of a just-placed image), so it is never reported as saved.
+   */
+  touch(): void {
+    this.touches += 1;
   }
 
   markSaved(token: number = this.getToken()): void {

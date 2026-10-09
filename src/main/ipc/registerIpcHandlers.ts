@@ -19,10 +19,17 @@ export interface DirectoryPicker {
   pickDirectory(): Promise<string | null>;
 }
 
+/** Native multi-file selection for asset import, implemented in the main process. */
+export interface AssetFilePicker {
+  /** Resolves to the chosen absolute paths, or an empty list when the dialog is cancelled. */
+  pickFiles(): Promise<string[]>;
+}
+
 export interface IpcDependencies {
   ipc: IpcMainLike;
   application: ProjectApplication;
   directoryPicker: DirectoryPicker;
+  assetPicker: AssetFilePicker;
   logger: Logger;
 }
 
@@ -45,7 +52,13 @@ function requireString(value: unknown): string {
 }
 
 /** Registers exactly the channels defined in `IPC_CHANNELS`; nothing generic is exposed. */
-export function registerIpcHandlers({ ipc, application, directoryPicker, logger }: IpcDependencies): void {
+export function registerIpcHandlers({
+  ipc,
+  application,
+  directoryPicker,
+  assetPicker,
+  logger
+}: IpcDependencies): void {
   function register<C extends IpcChannel>(
     channel: C,
     handler: (request: unknown) => Promise<IpcResponse<C>> | IpcResponse<C>
@@ -99,5 +112,30 @@ export function registerIpcHandlers({ ipc, application, directoryPicker, logger 
   register(IPC_CHANNELS.saveAnimation, async (payload) => {
     const request = asRecord(payload) as Partial<IpcRequest<'animation:save'>>;
     return application.saveAnimation(request.document);
+  });
+
+  register(IPC_CHANNELS.listAssets, () => application.listAssets());
+
+  register(IPC_CHANNELS.readAssetImage, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'assets:read-image'>>;
+    return application.readAssetImage(requireString(request.assetId));
+  });
+
+  register(IPC_CHANNELS.importAssets, async () => {
+    const paths = await assetPicker.pickFiles();
+    if (paths.length === 0) {
+      return { imported: [], skipped: [] };
+    }
+    return application.importAssets(paths);
+  });
+
+  register(IPC_CHANNELS.renameAsset, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'assets:rename'>>;
+    return application.renameAsset(requireString(request.assetId), requireString(request.newName));
+  });
+
+  register(IPC_CHANNELS.deleteAsset, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'assets:delete'>>;
+    return application.deleteAsset(requireString(request.assetId));
   });
 }

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { EditorSession } from '@editor/editorSession';
+import type { AssetsAPI } from '@shared/types/api';
 import { matchShortcut } from '@editor/shortcuts/shortcuts';
 import { useEditorSnapshot } from '../../state/useEditorSnapshot';
+import { AssetPanel } from './AssetPanel';
 import { CanvasWorkspace } from './CanvasWorkspace';
 import { LayerPanel } from './LayerPanel';
 import { PlaybackBar } from './PlaybackBar';
@@ -10,8 +12,18 @@ import { ToolOptions } from './ToolOptions';
 import { ToolPanel } from './ToolPanel';
 import { IconButton } from './IconButton';
 
+const MIN_TIMELINE_HEIGHT = 120;
+const MAX_TIMELINE_HEIGHT = 340;
+const MIN_PANEL_WIDTH = 180;
+const MAX_PANEL_WIDTH = 420;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 interface EditorProps {
   session: EditorSession;
+  assetsApi: AssetsAPI;
   projectName: string;
   saving: boolean;
   closing: boolean;
@@ -33,11 +45,17 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 /** The four editor areas plus the project header. Owns shortcuts and fullscreen, never persistence. */
-export function Editor({ session, projectName, saving, closing, onSave, onClose }: EditorProps) {
+export function Editor({ session, assetsApi, projectName, saving, closing, onSave, onClose }: EditorProps) {
   const snapshot = useEditorSnapshot(session);
   const { state } = snapshot;
   const rootRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [timelineHeight, setTimelineHeight] = useState(168);
+  const [inspectorWidth, setInspectorWidth] = useState(260);
+  const [aiChatWidth, setAiChatWidth] = useState(260);
+  const [resizeState, setResizeState] = useState<
+    null | { kind: 'timeline' | 'inspector' | 'chat'; startX: number; startY: number; startValue: number }
+  >(null);
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
 
@@ -83,6 +101,46 @@ export function Editor({ session, projectName, saving, closing, onSave, onClose 
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (resizeState === null) {
+      return undefined;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (resizeState.kind === 'timeline') {
+        setTimelineHeight(clamp(resizeState.startValue + (resizeState.startY - event.clientY), MIN_TIMELINE_HEIGHT, MAX_TIMELINE_HEIGHT));
+        return;
+      }
+      // Inspector and chat are both anchored to the right edge, and their separators sit on their
+      // left side, so dragging left always grows the panel and dragging right shrinks it.
+      const grow = resizeState.startX - event.clientX;
+      if (resizeState.kind === 'inspector') {
+        setInspectorWidth(clamp(resizeState.startValue + grow, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
+        return;
+      }
+      setAiChatWidth(clamp(resizeState.startValue + grow, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
+    };
+
+    const handlePointerUp = () => setResizeState(null);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [resizeState]);
+
+  function startResize(kind: 'timeline' | 'inspector' | 'chat', event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setResizeState({
+      kind,
+      startX: event.clientX,
+      startY: event.clientY,
+      startValue: kind === 'timeline' ? timelineHeight : kind === 'inspector' ? inspectorWidth : aiChatWidth
+    });
+  }
 
   function toggleFullscreen() {
     if (document.fullscreenElement !== null && document.fullscreenElement !== undefined) {
@@ -162,31 +220,75 @@ export function Editor({ session, projectName, saving, closing, onSave, onClose 
             onZoomChange={(zoom) => session.setZoom(zoom)}
             onToggleFullscreen={toggleFullscreen}
           />
-          <CanvasWorkspace session={session} snapshot={snapshot} />
+          <CanvasWorkspace session={session} snapshot={snapshot} assetsApi={assetsApi} />
         </main>
 
+        <div
+          className="editor-resizer editor-resizer-vertical"
+          role="separator"
+          aria-label="Resize inspector panel"
+          title="Resize inspector panel"
+          onPointerDown={(event) => startResize('inspector', event)}
+        />
+
         <aside className="editor-right">
-          <ToolOptions
-            state={state}
-            onColorChange={(color) => session.setColor(color)}
-            onBrushSizeChange={(size) => session.setBrushSize(size)}
-            onEraserSizeChange={(size) => session.setEraserSize(size)}
+          <div className="editor-side-panel" style={{ width: inspectorWidth }}>
+            <ToolOptions
+              state={state}
+              onColorChange={(color) => session.setColor(color)}
+              onBrushSizeChange={(size) => session.setBrushSize(size)}
+              onEraserSizeChange={(size) => session.setEraserSize(size)}
+            />
+            <AssetPanel assetsApi={assetsApi} />
+            <LayerPanel
+              layers={snapshot.activeFrame.layers}
+              activeLayerId={state.activeLayerId ?? snapshot.activeLayer.id}
+              disabled={playing}
+              onSelect={(layerId) => session.selectLayer(layerId)}
+              onAdd={() => session.addLayer()}
+              onRename={(layerId, name) => session.renameLayer(layerId, name)}
+              onRemove={(layerId) => session.removeLayer(layerId)}
+              onMove={(layerId, direction) => session.moveLayer(layerId, direction)}
+              onToggleVisible={(layerId, visible) => session.setLayerVisible(layerId, visible)}
+            />
+          </div>
+
+          <div
+            className="editor-resizer editor-resizer-inner"
+            role="separator"
+            aria-label="Resize AI chat panel"
+            title="Resize AI chat panel"
+            onPointerDown={(event) => startResize('chat', event)}
           />
-          <LayerPanel
-            layers={snapshot.activeFrame.layers}
-            activeLayerId={state.activeLayerId ?? snapshot.activeLayer.id}
-            disabled={playing}
-            onSelect={(layerId) => session.selectLayer(layerId)}
-            onAdd={() => session.addLayer()}
-            onRename={(layerId, name) => session.renameLayer(layerId, name)}
-            onRemove={(layerId) => session.removeLayer(layerId)}
-            onMove={(layerId, direction) => session.moveLayer(layerId, direction)}
-            onToggleVisible={(layerId, visible) => session.setLayerVisible(layerId, visible)}
-          />
+
+          <section className="editor-ai-panel" role="region" aria-label="AI Assistant" style={{ width: aiChatWidth }}>
+            <div className="panel-title-row">
+              <h2 className="panel-title">AI Assistant</h2>
+            </div>
+            <div className="ai-chat-empty">
+              <p className="empty-title">Your AI assistant will be available here</p>
+              <p className="muted">AI integrations are not configured yet.</p>
+            </div>
+            <div className="ai-chat-input-row">
+              <textarea aria-label="AI chat input" placeholder="Ask something..." rows={3} />
+              <button type="button" className="button button-small button-primary" aria-label="Send">
+                Send
+              </button>
+            </div>
+          </section>
         </aside>
       </div>
 
-      <Timeline session={session} snapshot={snapshot} />
+      <div className="editor-timeline-wrapper" style={{ height: timelineHeight }}>
+        <div
+          className="editor-resizer editor-resizer-horizontal"
+          role="separator"
+          aria-label="Resize timeline panel"
+          title="Resize timeline panel"
+          onPointerDown={(event) => startResize('timeline', event)}
+        />
+        <Timeline session={session} snapshot={snapshot} height={timelineHeight} />
+      </div>
     </div>
   );
 }

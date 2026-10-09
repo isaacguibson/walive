@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { framesFromAnimationDocument } from '@editor/animation/serialization';
 import { EditorSession } from '@editor/editorSession';
 import { EditorError } from '@editor/errors';
-import type { AnimationAPI, ProjectAPI } from '@shared/types/api';
+import type { AnimationAPI, AssetsAPI, ProjectAPI } from '@shared/types/api';
 import type { ProjectMetadata } from '@shared/types/project';
 import { ConfirmCloseDialog } from '../components/editor/ConfirmCloseDialog';
 import { Editor } from '../components/editor/Editor';
@@ -10,6 +10,7 @@ import { Editor } from '../components/editor/Editor';
 interface EditorPageProps {
   api: ProjectAPI;
   animationApi: AnimationAPI;
+  assetsApi: AssetsAPI;
   project: ProjectMetadata;
   onClosed(): void;
 }
@@ -24,7 +25,7 @@ type LoadState =
  * coordinates saving and closing through Project Management. The editor never
  * touches files itself.
  */
-export function EditorPage({ api, animationApi, project, onClosed }: EditorPageProps) {
+export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: EditorPageProps) {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -160,6 +161,7 @@ export function EditorPage({ api, animationApi, project, onClosed }: EditorPageP
     <>
       <Editor
         session={load.session}
+        assetsApi={assetsApi}
         projectName={project.name}
         saving={saving}
         closing={closing}

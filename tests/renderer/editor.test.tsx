@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applicationFrameClipboard } from '@editor/animation/clipboard';
 import type { AnimationDocument } from '@shared/types/animation';
+import { ASSET_DRAG_MIME } from '@shared/types/assets';
 import { EditorPage } from '../../src/renderer/pages/EditorPage';
 import {
   createMockAnimationApi,
   createMockApi,
+  createMockAssetsApi,
   fail,
   metadata,
   ok,
   type MockAnimationApi,
+  type MockAssetsApi,
   type MockProjectApi
 } from './helpers';
 
@@ -21,15 +24,19 @@ const PROJECT = { ...metadata('Studio'), canvas: { width: SIZE, height: SIZE, ke
 interface Options {
   api?: MockProjectApi;
   animationApi?: MockAnimationApi;
+  assetsApi?: MockAssetsApi;
 }
 
 function renderEditor(options: Options = {}) {
   const user = userEvent.setup();
   const api = options.api ?? createMockApi();
   const animationApi = options.animationApi ?? createMockAnimationApi();
+  const assetsApi = options.assetsApi ?? createMockAssetsApi();
   const onClosed = vi.fn();
-  render(<EditorPage api={api} animationApi={animationApi} project={PROJECT} onClosed={onClosed} />);
-  return { user, api, animationApi, onClosed };
+  render(
+    <EditorPage api={api} animationApi={animationApi} assetsApi={assetsApi} project={PROJECT} onClosed={onClosed} />
+  );
+  return { user, api, animationApi, assetsApi, onClosed };
 }
 
 async function renderReadyEditor(options: Options = {}) {
@@ -171,6 +178,377 @@ describe('layout and tooltips', () => {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
   });
+});
+
+describe('canvas panning and sidebar panels', () => {
+  it('pans the canvas with the middle mouse button and keeps the drawing state intact', async () => {
+    await renderReadyEditor();
+    const canvas = screen.getByTestId('drawing-canvas');
+    const frame = canvas.parentElement as HTMLElement;
+
+    fireEvent.pointerDown(canvas, { button: 1, buttons: 4, clientX: 40, clientY: 60 });
+    fireEvent.pointerMove(canvas, { button: 1, buttons: 4, clientX: 90, clientY: 120 });
+    expect(frame).toHaveStyle({ transform: 'translate(50px, 60px)' });
+
+    fireEvent.pointerUp(canvas, { button: 1, buttons: 0, clientX: 90, clientY: 120 });
+    expect(frame).toHaveStyle({ transform: 'translate(50px, 60px)' });
+  });
+
+  it('shows the asset manager and AI chat panels in the editor layout', async () => {
+    await renderReadyEditor();
+    expect(screen.getByRole('region', { name: 'Project Assets' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import Asset' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'AI Assistant' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+  });
+
+  it('resizes the AI chat panel: dragging left grows it and dragging right shrinks it', async () => {
+    await renderReadyEditor();
+    const separator = screen.getByRole('separator', { name: 'Resize AI chat panel' });
+    const width = () => parseInt(screen.getByRole('region', { name: 'AI Assistant' }).style.width, 10);
+    const inspectorWidth = () =>
+      parseInt((screen.getByRole('region', { name: 'Project Assets' }).parentElement as HTMLElement).style.width, 10);
+    const start = width();
+    const inspectorStart = inspectorWidth();
+
+    fireEvent.pointerDown(separator, { clientX: 500 });
+    fireEvent.pointerMove(window, { clientX: 450 });
+    expect(width()).toBe(start + 50);
+    fireEvent.pointerMove(window, { clientX: 540 });
+    expect(width()).toBe(start - 40);
+    fireEvent.pointerUp(window);
+
+    expect(inspectorWidth()).toBe(inspectorStart);
+  });
+
+  it('resizes the inspector panel: dragging left grows it', async () => {
+    await renderReadyEditor();
+    const separator = screen.getByRole('separator', { name: 'Resize inspector panel' });
+    const inspector = () => (screen.getByRole('region', { name: 'Project Assets' }).parentElement as HTMLElement).style.width;
+    fireEvent.pointerDown(separator, { clientX: 500 });
+    fireEvent.pointerMove(window, { clientX: 470 });
+    fireEvent.pointerUp(window);
+    expect(inspector()).toBe('290px');
+  });
+});
+
+describe('asset manager', () => {
+  const IMAGE = { id: 'assets/images/hero.png', name: 'hero.png', type: 'image', relativePath: 'assets/images/hero.png', extension: 'png' } as const;
+  const AUDIO = { id: 'assets/audio/theme.mp3', name: 'theme.mp3', type: 'audio', relativePath: 'assets/audio/theme.mp3', extension: 'mp3' } as const;
+  const VIDEO = { id: 'assets/video/intro.mp4', name: 'intro.mp4', type: 'video', relativePath: 'assets/video/intro.mp4', extension: 'mp4' } as const;
+
+  it('lists the real project assets with an icon per type and no thumbnails', async () => {
+    const assetsApi = createMockAssetsApi({ listAssets: async () => ok([IMAGE, AUDIO, VIDEO]) });
+    await renderReadyEditor({ assetsApi });
+
+    const list = await screen.findByRole('list', { name: 'Project asset list' });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows.map((row) => row.querySelector('.asset-name')?.textContent)).toEqual(['hero.png', 'theme.mp3', 'intro.mp4']);
+    expect(rows.map((row) => row.querySelector('[data-asset-icon]')?.getAttribute('data-asset-icon'))).toEqual([
+      'image',
+      'music',
+      'file'
+    ]);
+    expect(within(list).queryByRole('img')).toBeNull();
+  });
+
+  it('shows an empty state when the project has no assets', async () => {
+    await renderReadyEditor();
+    expect(await screen.findByText(/No assets yet/)).toBeInTheDocument();
+  });
+
+  it('imports assets through the service and refreshes the list', async () => {
+    const listAssets = vi.fn().mockResolvedValueOnce(ok([])).mockResolvedValue(ok([IMAGE]));
+    const assetsApi = createMockAssetsApi({
+      listAssets,
+      importAssets: async () => ok({ imported: [IMAGE], skipped: [{ name: 'notes.txt', reason: 'This file type is not supported.' }] })
+    });
+    const { user } = await renderReadyEditor({ assetsApi });
+    await screen.findByText(/No assets yet/);
+
+    await user.click(screen.getByRole('button', { name: 'Import Asset' }));
+
+    expect(assetsApi.importAssets).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('hero.png')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Project Assets' })).getByRole('status')).toHaveTextContent('Imported 1 asset. notes.txt: This file type is not supported.');
+  });
+
+  it('shows import failures', async () => {
+    const assetsApi = createMockAssetsApi({ importAssets: async () => fail('The project could not be changed.') });
+    const { user } = await renderReadyEditor({ assetsApi });
+    await user.click(screen.getByRole('button', { name: 'Import Asset' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The project could not be changed.');
+  });
+
+  it('renames an asset using only the name without the extension', async () => {
+    const renamed = { ...IMAGE, id: 'assets/images/villain.png', name: 'villain.png', relativePath: 'assets/images/villain.png' };
+    const listAssets = vi.fn().mockResolvedValueOnce(ok([IMAGE])).mockResolvedValue(ok([renamed]));
+    const assetsApi = createMockAssetsApi({ listAssets, renameAsset: async () => ok(renamed) });
+    const { user } = await renderReadyEditor({ assetsApi });
+
+    await user.click(await screen.findByRole('button', { name: 'hero.png' }));
+    await user.click(screen.getByRole('button', { name: 'Rename hero.png' }));
+    const input = screen.getByRole('textbox', { name: 'New name for hero.png' });
+    expect(input).toHaveValue('hero');
+    await user.clear(input);
+    await user.type(input, 'villain{Enter}');
+
+    expect(assetsApi.renameAsset).toHaveBeenCalledWith(IMAGE.id, 'villain');
+    expect(await screen.findByText('villain.png')).toBeInTheDocument();
+  });
+
+  it('keeps the rename field open and shows the error when the name is rejected', async () => {
+    const assetsApi = createMockAssetsApi({
+      listAssets: async () => ok([IMAGE]),
+      renameAsset: async () => fail('An asset with this name already exists.')
+    });
+    const { user } = await renderReadyEditor({ assetsApi });
+    await user.click(await screen.findByRole('button', { name: 'hero.png' }));
+    await user.click(screen.getByRole('button', { name: 'Rename hero.png' }));
+    await user.type(screen.getByRole('textbox', { name: 'New name for hero.png' }), '2{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('An asset with this name already exists.');
+    expect(screen.getByRole('textbox', { name: 'New name for hero.png' })).toBeInTheDocument();
+  });
+
+  it('asks for confirmation before deleting an asset', async () => {
+    const listAssets = vi.fn().mockResolvedValueOnce(ok([IMAGE, AUDIO])).mockResolvedValue(ok([AUDIO]));
+    const assetsApi = createMockAssetsApi({ listAssets });
+    const { user } = await renderReadyEditor({ assetsApi });
+
+    await user.click(await screen.findByRole('button', { name: 'hero.png' }));
+    await user.click(screen.getByRole('button', { name: 'Delete hero.png' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(assetsApi.deleteAsset).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Delete hero.png' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(assetsApi.deleteAsset).toHaveBeenCalledWith(IMAGE.id);
+    await waitFor(() => expect(screen.queryByText('hero.png')).toBeNull());
+    expect(screen.getByText('theme.mp3')).toBeInTheDocument();
+  });
+  it('cancels the rename like Escape when clicking outside the field', async () => {
+    const assetsApi = createMockAssetsApi({ listAssets: async () => ok([IMAGE]) });
+    const { user } = await renderReadyEditor({ assetsApi });
+    await user.click(await screen.findByRole('button', { name: 'hero.png' }));
+    await user.click(screen.getByRole('button', { name: 'Rename hero.png' }));
+    await user.type(screen.getByRole('textbox', { name: 'New name for hero.png' }), 'xyz');
+
+    await user.click(screen.getByTestId('canvas-viewport'));
+
+    expect(screen.queryByRole('textbox', { name: 'New name for hero.png' })).toBeNull();
+    expect(screen.getByText('hero.png')).toBeInTheDocument();
+    expect(assetsApi.renameAsset).not.toHaveBeenCalled();
+  });
+
+  it('clears a rename error when the edit is cancelled by clicking outside', async () => {
+    const assetsApi = createMockAssetsApi({
+      listAssets: async () => ok([IMAGE]),
+      renameAsset: async () => fail('An asset with this name already exists.')
+    });
+    const { user } = await renderReadyEditor({ assetsApi });
+    await user.click(await screen.findByRole('button', { name: 'hero.png' }));
+    await user.click(screen.getByRole('button', { name: 'Rename hero.png' }));
+    await user.type(screen.getByRole('textbox', { name: 'New name for hero.png' }), '2{Enter}');
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('canvas-viewport'));
+
+    expect(screen.queryByRole('textbox', { name: 'New name for hero.png' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('does not cancel a rename that is being committed', async () => {
+    let finish: (value: ReturnType<typeof ok<typeof IMAGE>>) => void = () => undefined;
+    const assetsApi = createMockAssetsApi({
+      listAssets: async () => ok([IMAGE]),
+      renameAsset: () => new Promise((resolve) => (finish = resolve as typeof finish))
+    });
+    const { user } = await renderReadyEditor({ assetsApi });
+    await user.click(await screen.findByRole('button', { name: 'hero.png' }));
+    await user.click(screen.getByRole('button', { name: 'Rename hero.png' }));
+    const input = screen.getByRole('textbox', { name: 'New name for hero.png' });
+    await user.type(input, '2{Enter}');
+    expect(assetsApi.renameAsset).toHaveBeenCalledTimes(1);
+
+    fireEvent.blur(input);
+    expect(screen.getByRole('textbox', { name: 'New name for hero.png' })).toBeInTheDocument();
+
+    await act(async () => finish(ok(IMAGE)));
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'New name for hero.png' })).toBeNull());
+  });
+
+  it('only lets image assets be dragged, from the row (not from the inner button)', async () => {
+    const assetsApi = createMockAssetsApi({ listAssets: async () => ok([IMAGE, AUDIO]) });
+    await renderReadyEditor({ assetsApi });
+    const list = await screen.findByRole('list', { name: 'Project asset list' });
+    const [imageRow, audioRow] = within(list).getAllByRole('listitem');
+    expect(imageRow).toHaveAttribute('draggable', 'true');
+    expect(audioRow).toHaveAttribute('draggable', 'false');
+
+    const data = new Map<string, string>();
+    fireEvent.dragStart(imageRow as HTMLElement, {
+      dataTransfer: { setData: (type: string, value: string) => data.set(type, value), effectAllowed: '' }
+    });
+    expect(JSON.parse(data.get(ASSET_DRAG_MIME) as string)).toEqual({ assetId: IMAGE.id, assetName: 'hero.png' });
+  });
+});
+
+describe('placing an image on the canvas', () => {
+  const IMAGE = { id: 'assets/images/hero.png', name: 'hero.png', type: 'image', relativePath: 'assets/images/hero.png', extension: 'png' } as const;
+
+  beforeEach(() => {
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 20;
+      naturalHeight = 10;
+      width = 20;
+      height = 10;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** What a browser exposes: during dragover only `types` is readable, `getData` returns '' until the drop. */
+  function transfer(phase: 'dragover' | 'drop', types: string[] = [ASSET_DRAG_MIME]) {
+    return {
+      types,
+      dropEffect: 'none',
+      getData: (type: string) =>
+        phase === 'drop' && type === ASSET_DRAG_MIME ? JSON.stringify({ assetId: IMAGE.id, assetName: 'hero.png' }) : ''
+    };
+  }
+
+  async function dropImage() {
+    const result = await renderReadyEditor({ assetsApi: createMockAssetsApi({ listAssets: async () => ok([IMAGE]) }) });
+    canvas();
+    const drawImage = vi.spyOn(canvas().getContext('2d') as CanvasRenderingContext2D, 'drawImage');
+    fireEvent.drop(screen.getByTestId('canvas-viewport'), { dataTransfer: transfer('drop') });
+    const overlay = await screen.findByTestId('placement-overlay');
+    /** Where the image was last drawn: [x, y, width, height] (the renderer's own 3-argument calls are ignored). */
+    const lastPlacement = () =>
+      (drawImage.mock.calls as unknown[][]).filter((call) => call.length === 5).at(-1)?.slice(1);
+    return { ...result, overlay, lastPlacement };
+  }
+
+  function part(overlay: HTMLElement, handle: string): HTMLElement {
+    return overlay.querySelector(`[data-handle="${handle}"]`) as HTMLElement;
+  }
+
+  it('accepts the drag from the first dragover even though the data is not readable yet', async () => {
+    await renderReadyEditor();
+    const viewport = screen.getByTestId('canvas-viewport');
+
+    // fireEvent returns false when the handler called preventDefault (which is what allows the drop).
+    expect(fireEvent.dragOver(viewport, { dataTransfer: transfer('dragover') })).toBe(false);
+    expect(fireEvent.dragOver(viewport, { dataTransfer: transfer('dragover', ['Files']) })).toBe(true);
+  });
+
+  it('drops the image as a new layer centered on the canvas', async () => {
+    const { assetsApi, lastPlacement } = await dropImage();
+
+    expect(assetsApi.readAssetImage).toHaveBeenCalledWith(IMAGE.id);
+    expect(layerNames()).toContain('hero');
+    expect(lastPlacement()).toEqual([22, 27, 20, 10]);
+    expect(screen.getByText(/Drag to move/)).toBeInTheDocument();
+  });
+
+  it('ignores a drop that does not carry an asset', async () => {
+    const { assetsApi } = await renderReadyEditor();
+    fireEvent.drop(screen.getByTestId('canvas-viewport'), { dataTransfer: transfer('drop', ['Files']) });
+    expect(assetsApi.readAssetImage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('placement-overlay')).toBeNull();
+  });
+
+  it('shows the error when the image cannot be read', async () => {
+    const assetsApi = createMockAssetsApi({
+      listAssets: async () => ok([IMAGE]),
+      readAssetImage: async () => fail('The image could not be read.')
+    });
+    await renderReadyEditor({ assetsApi });
+    fireEvent.drop(screen.getByTestId('canvas-viewport'), { dataTransfer: transfer('drop') });
+    expect(await screen.findByRole('alert')).toHaveTextContent('The image could not be read.');
+    expect(screen.queryByTestId('placement-overlay')).toBeNull();
+  });
+
+  it('moves the image with the pointer and snaps it to the canvas border', async () => {
+    const { overlay, lastPlacement } = await dropImage();
+    const body = part(overlay, 'move');
+
+    fireEvent.pointerDown(body, { button: 0, buttons: 1, pointerId: 2, clientX: 30, clientY: 32 });
+    fireEvent.pointerMove(body, { buttons: 1, pointerId: 2, clientX: 10, clientY: 32 });
+    fireEvent.pointerUp(body, { button: 0, buttons: 0, pointerId: 2, clientX: 10, clientY: 32 });
+
+    // 22 - 20 = 2 px from the left border: within the snap distance, so it lands exactly on it.
+    expect(lastPlacement()).toEqual([0, 27, 20, 10]);
+    expect(screen.getByTestId('placement-overlay').style.left).toBe('0%');
+  });
+
+  it('resizes from a corner keeping the proportions and snapping to the border', async () => {
+    const { overlay, lastPlacement } = await dropImage();
+    const corner = part(overlay, 'se');
+
+    fireEvent.pointerDown(corner, { button: 0, buttons: 1, pointerId: 2, clientX: 42, clientY: 37 });
+    fireEvent.pointerMove(corner, { buttons: 1, pointerId: 2, clientX: 62, clientY: 37 });
+
+    // The corner would land 2 px from the right border, so it snaps there: 22 + 42 = 64.
+    expect(lastPlacement()).toEqual([22, 27, 42, 21]);
+  });
+
+  it('adds a single undo step no matter how many times the image is moved', async () => {
+    const { user, overlay } = await dropImage();
+    const body = part(overlay, 'move');
+    fireEvent.pointerDown(body, { button: 0, buttons: 1, pointerId: 2, clientX: 30, clientY: 32 });
+    fireEvent.pointerMove(body, { buttons: 1, pointerId: 2, clientX: 20, clientY: 32 });
+    fireEvent.pointerMove(body, { buttons: 1, pointerId: 2, clientX: 10, clientY: 40 });
+    fireEvent.pointerUp(body, { button: 0, buttons: 0, pointerId: 2 });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(layerNames()).not.toContain('hero');
+    expect(screen.queryByTestId('placement-overlay')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
+  it('finishes with Enter, Escape, the Done button or a click on the canvas, keeping the image', async () => {
+    const finishers: Array<(user: ReturnType<typeof userEvent.setup>) => void | Promise<void>> = [
+      () => void fireEvent.keyDown(document.body, { key: 'Enter' }),
+      () => void fireEvent.keyDown(document.body, { key: 'Escape' }),
+      (user) => user.click(screen.getByRole('button', { name: 'Done' })),
+      () => void fireEvent.pointerDown(canvas(), { button: 0, buttons: 1, pointerId: 1, clientX: 5, clientY: 5 })
+    ];
+    for (const finish of finishers) {
+      const { user, unmount } = await dropImageAndKeepRender();
+      await finish(user);
+      await waitFor(() => expect(screen.queryByTestId('placement-overlay')).toBeNull());
+      expect(layerNames()).toContain('hero');
+      unmount();
+    }
+  });
+
+  it('does not draw when the click that confirms the placement lands on the canvas', async () => {
+    const { user } = await dropImage();
+    fireEvent.pointerDown(canvas(), { button: 0, buttons: 1, pointerId: 1, clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(canvas(), { button: 0, buttons: 0, pointerId: 1, clientX: 5, clientY: 5 });
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    // The only undoable step was adding the image; a stroke would have needed a second one.
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
+  async function dropImageAndKeepRender() {
+    const result = await dropImage();
+    return { user: result.user, unmount: () => cleanup() };
+  }
 });
 
 describe('tools', () => {

@@ -8,6 +8,7 @@ import { IconButton } from './IconButton';
 interface TimelineProps {
   session: EditorSession;
   snapshot: EditorSnapshot;
+  height?: number;
 }
 
 interface MenuState {
@@ -17,7 +18,7 @@ interface MenuState {
 }
 
 /** Area 3: frame management toolbar and the sequence of frames. */
-export function Timeline({ session, snapshot }: TimelineProps) {
+export function Timeline({ session, snapshot, height = 168 }: TimelineProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
@@ -66,7 +67,7 @@ export function Timeline({ session, snapshot }: TimelineProps) {
   }
 
   return (
-    <section className="timeline" aria-label="Frame Management">
+    <section className="timeline" aria-label="Frame Management" style={{ height, flexBasis: `${height}px` }}>
       <div className="timeline-toolbar" role="toolbar" aria-label="Frame actions">
         <div className="split-button">
           <IconButton

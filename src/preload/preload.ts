@@ -28,6 +28,13 @@ const api: AppAPI = {
   animation: {
     loadAnimation: () => call(IPC_CHANNELS.loadAnimation),
     saveAnimation: (document) => call(IPC_CHANNELS.saveAnimation, { document })
+  },
+  assets: {
+    listAssets: () => call(IPC_CHANNELS.listAssets),
+    readAssetImage: (assetId) => call(IPC_CHANNELS.readAssetImage, { assetId }),
+    importAssets: () => call(IPC_CHANNELS.importAssets),
+    renameAsset: (assetId, newName) => call(IPC_CHANNELS.renameAsset, { assetId, newName }),
+    deleteAsset: (assetId) => call(IPC_CHANNELS.deleteAsset, { assetId })
   }
 };
 

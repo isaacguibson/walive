@@ -370,6 +370,34 @@ export class EditorSession {
     this.edit(() => this.engine.addLayer());
   }
 
+  /** Adds a layer above the active one with the given pixels. Returns the new layer id, or `null` when it was not added. */
+  addLayerFromPixels(name: string, pixels: Uint8ClampedArray): string | null {
+    const layer = this.edit(() => {
+      const drawing = { width: this.engine.width, height: this.engine.height, data: pixels, revision: 0, dirty: null };
+      return this.engine.addLayerFromDrawing(name, drawing);
+    });
+    return layer?.id ?? null;
+  }
+
+  /**
+   * Replaces the pixels of a layer without creating a history entry. Used while
+   * an image that was just added is being moved or resized. Returns `false`
+   * when the layer is gone (undo, another frame) or editing is not allowed.
+   */
+  updateLayerPixels(layerId: string, pixels: Uint8ClampedArray): boolean {
+    return (
+      this.edit(() => {
+        this.engine.setLayerPixels(layerId, pixels);
+        return true;
+      }) === true
+    );
+  }
+
+  /** Whether the active frame still has a layer with this id. */
+  hasActiveFrameLayer(layerId: string): boolean {
+    return this.engine.getActiveFrame().layers.some((layer) => layer.id === layerId);
+  }
+
   renameLayer(layerId: string, name: string): boolean {
     return (
       this.edit(() => {

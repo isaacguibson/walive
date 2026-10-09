@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
-import { createMockAnimationApi, createMockApi, fail, metadata, ok, recent } from './helpers';
+import { createMockAnimationApi, createMockApi, createMockAssetsApi, fail, metadata, ok, recent } from './helpers';
 
 async function expectEditor(name: string) {
   // The loading screen shares the heading, so wait for the loaded editor first.
@@ -14,7 +14,7 @@ async function expectEditor(name: string) {
 function renderApp(api = createMockApi()) {
   const user = userEvent.setup();
   const animationApi = createMockAnimationApi();
-  render(<App api={api} animationApi={animationApi} />);
+  render(<App api={api} animationApi={animationApi} assetsApi={createMockAssetsApi()} />);
   return { api, animationApi, user };
 }
 

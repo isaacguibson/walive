@@ -6,8 +6,8 @@ import { createIdGenerator } from '../ids';
 import type { Frame, Layer } from '../model';
 import { ANIMATION_LIMITS } from '@shared/types/animation';
 import { applicationFrameClipboard, type FrameClipboardStore } from './clipboard';
-import { cloneFrame, cloneLayer, createLayer, nextLayerName } from './frames';
-import { createDrawing } from '../drawing/raster';
+import { cloneFrame, cloneLayer, createLayer, createLayerFromDrawing, nextLayerName } from './frames';
+import { createDrawing, ensureData, markDirty } from '../drawing/raster';
 
 type Listener = () => void;
 
@@ -289,6 +289,22 @@ export class AnimationEngine {
     return layer;
   }
 
+  addLayerFromDrawing(name: string, drawing: Layer['drawing']): Layer {
+    const frame = this.getActiveFrame();
+    if (frame.layers.length >= ANIMATION_LIMITS.maxLayersPerFrame) {
+      throw new EditorError('LIMIT_EXCEEDED', `A frame can have at most ${ANIMATION_LIMITS.maxLayersPerFrame} layers.`);
+    }
+    const layer = createLayerFromDrawing(this.newId(), name, drawing);
+    const index = this.activeLayerIndex();
+    const layers = [...frame.layers.slice(0, index), layer, ...frame.layers.slice(index)];
+    this.commit('Add layer', {
+      frames: this.replaceFrame(frame.id, { id: frame.id, layers }),
+      activeFrameId: frame.id,
+      activeLayerId: layer.id
+    });
+    return layer;
+  }
+
   renameLayer(layerId: string, name: string): void {
     const trimmed = name.trim();
     if (trimmed.length === 0 || trimmed.length > ANIMATION_LIMITS.maxLayerNameLength) {
@@ -357,6 +373,25 @@ export class AnimationEngine {
       throw new EditorError('NOT_FOUND', 'The layer could not be found.');
     }
     this.reorderLayer(layerId, direction === 'up' ? index - 1 : index + 1);
+  }
+
+  /**
+   * Overwrites the pixels of a layer of the active frame while an image is being
+   * positioned. This is deliberately not a history entry: the layer was added by
+   * one undoable command, so undo removes it as a whole instead of stepping
+   * through every intermediate position. The document still counts as modified.
+   */
+  setLayerPixels(layerId: string, pixels: Uint8ClampedArray): void {
+    const layer = this.requireActiveFrameLayer(layerId);
+    const drawing = layer.drawing;
+    if (pixels.length !== drawing.width * drawing.height * 4) {
+      throw new EditorError('INVALID_VALUE', 'The image data does not match the canvas size.');
+    }
+    ensureData(drawing).set(pixels);
+    markDirty(drawing, { x: 0, y: 0, width: drawing.width, height: drawing.height });
+    this.history.touch();
+    this.emit();
+    this.emitContent();
   }
 
   // ---- Drawing -----------------------------------------------------------

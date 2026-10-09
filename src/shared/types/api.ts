@@ -1,5 +1,6 @@
 import type { IpcResult } from './errors';
 import type { AnimationDocument } from './animation';
+import type { AssetImportResult, ProjectAsset } from './assets';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from './project';
 
 /**
@@ -30,7 +31,22 @@ export interface AnimationAPI {
   saveAnimation(document: AnimationDocument): Promise<IpcResult<void>>;
 }
 
+/**
+ * Project-wide asset management (HU_00005 §7). The renderer only works with
+ * opaque asset ids; the main process owns every file path and file dialog.
+ */
+export interface AssetsAPI {
+  listAssets(): Promise<IpcResult<ProjectAsset[]>>;
+  readAssetImage(assetId: string): Promise<IpcResult<string>>;
+  /** Shows the native file picker and copies the chosen files into the project. */
+  importAssets(): Promise<IpcResult<AssetImportResult>>;
+  /** Renames an asset. `newName` is the name without extension; the extension is preserved. */
+  renameAsset(assetId: string, newName: string): Promise<IpcResult<ProjectAsset>>;
+  deleteAsset(assetId: string): Promise<IpcResult<void>>;
+}
+
 export interface AppAPI {
   project: ProjectAPI;
   animation: AnimationAPI;
+  assets: AssetsAPI;
 }

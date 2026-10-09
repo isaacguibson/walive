@@ -24,7 +24,11 @@ export type IconName =
   | 'exitFullscreen'
   | 'loop'
   | 'save'
-  | 'close';
+  | 'close'
+  | 'image'
+  | 'music'
+  | 'file'
+  | 'edit';
 
 const PATHS: Record<IconName, readonly string[]> = {
   brush: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
@@ -102,7 +106,15 @@ const PATHS: Record<IconName, readonly string[]> = {
   exitFullscreen: ['M8 3v3a2 2 0 0 1-2 2H3', 'M21 8h-3a2 2 0 0 1-2-2V3', 'M3 16h3a2 2 0 0 1 2 2v3', 'M16 21v-3a2 2 0 0 1 2-2h3'],
   loop: ['m17 2 4 4-4 4', 'M3 11v-1a4 4 0 0 1 4-4h14', 'm7 22-4-4 4-4', 'M21 13v1a4 4 0 0 1-4 4H3'],
   save: ['M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z', 'M17 21v-8H7v8', 'M7 3v5h8'],
-  close: ['M18 6 6 18', 'm6 6 12 12']
+  close: ['M18 6 6 18', 'm6 6 12 12'],
+  image: [
+    'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+    'M7 9a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+    'm21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'
+  ],
+  music: ['M9 18V5l12-2v13', 'M3 18a3 3 0 1 0 6 0 3 3 0 1 0-6 0', 'M15 16a3 3 0 1 0 6 0 3 3 0 1 0-6 0'],
+  file: ['M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z', 'M14 2v6h6'],
+  edit: ['M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z']
 };
 
 const FILLED: ReadonlySet<IconName> = new Set<IconName>(['play', 'stop']);
