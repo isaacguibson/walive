@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/core/**/*",
+    "src/shared/**/*",
+    "tests/core/**/*",
+    "tests/main/**/*",
+    "tests/architecture/**/*",
+    "tests/helpers/**/*",
+    "electron.vite.config.ts",
+    "vitest.config.ts"
+  ]
+}
