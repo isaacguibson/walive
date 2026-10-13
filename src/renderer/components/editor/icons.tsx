@@ -1,9 +1,8 @@
 export type IconName =
   | 'brush'
+  | 'bezier'
   | 'eraser'
   | 'fill'
-  | 'eyedropper'
-  | 'selection'
   | 'play'
   | 'stop'
   | 'undo'
@@ -36,6 +35,7 @@ export type IconName =
 
 const PATHS: Record<IconName, readonly string[]> = {
   brush: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
+  bezier: ['M5 15C5 9 9 5 17 5', 'M3 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0', 'M17 5a2 2 0 1 0 4 0 2 2 0 1 0-4 0'],
   eraser: [
     'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21',
     'M22 21H7',
@@ -46,25 +46,6 @@ const PATHS: Record<IconName, readonly string[]> = {
     'm5 2 5 5',
     'M2 13h15',
     'M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z'
-  ],
-  eyedropper: [
-    'm2 22 1-1h3l9-9',
-    'M3 21v-3l9-9',
-    'm15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'
-  ],
-  selection: [
-    'M5 3a2 2 0 0 0-2 2',
-    'M19 3a2 2 0 0 1 2 2',
-    'M21 19a2 2 0 0 1-2 2',
-    'M5 21a2 2 0 0 1-2-2',
-    'M9 3h1',
-    'M9 21h1',
-    'M14 3h1',
-    'M14 21h1',
-    'M3 9v1',
-    'M21 9v1',
-    'M3 14v1',
-    'M21 14v1'
   ],
   play: ['M7 4.5v15l12.5-7.5Z'],
   stop: ['M6 6h12v12H6Z'],

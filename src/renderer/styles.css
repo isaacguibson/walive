@@ -565,6 +565,7 @@ label[for='keep-aspect-ratio'] {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  flex-shrink: 0;
   min-width: 32px;
   height: 32px;
   padding: 0 6px;
@@ -574,6 +575,7 @@ label[for='keep-aspect-ratio'] {
   color: var(--text);
   font: inherit;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -607,6 +609,7 @@ label[for='keep-aspect-ratio'] {
 .icon-button-toggle {
   border-color: var(--border);
   padding: 0 10px;
+  min-width: 88px;
 }
 
 /* Tool panel */
@@ -794,24 +797,48 @@ label[for='keep-aspect-ratio'] {
   line-height: 1.35;
 }
 
-.field-caption {
-  color: var(--muted);
-  font-size: 13px;
+.curve-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 10px;
 }
 
-.color-input {
+.curve-actions-row {
+  display: flex;
+  gap: 6px;
+}
+
+.curve-actions-row > .button {
+  flex: 1;
+}
+
+.curve-actions .button[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+
+/* Overrides the generic `.field input` box, which would squeeze the swatch into a thin grey stripe. */
+.field .color-input {
+  flex: none;
   width: 100%;
   height: 36px;
-  padding: 2px;
+  padding: 3px;
   cursor: pointer;
 }
 
-.color-swatch {
-  display: inline-block;
-  width: 100%;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 4px;
+}
+
+.color-input::-moz-color-swatch {
+  border: 0;
+  border-radius: 4px;
 }
 
 /* Never shrinks below a usable height: the side panel scrolls instead of squeezing the layers. */
@@ -923,6 +950,7 @@ label[for='keep-aspect-ratio'] {
 /* Playback bar */
 .playback-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
@@ -949,6 +977,66 @@ label[for='keep-aspect-ratio'] {
   background: var(--bg);
   color: var(--text);
   font: inherit;
+}
+
+.bar-input-range {
+  width: clamp(220px, 34vw, 420px);
+  min-width: 220px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.bar-input-range::-webkit-slider-runnable-track {
+  height: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.bar-input-range::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: -6px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.bar-input-range::-moz-range-track {
+  height: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.bar-input-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.bar-input-range:focus-visible {
+  outline: none;
+}
+
+.bar-input-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+.bar-input-range:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 2px var(--focus);
 }
 
 .bar-input[aria-invalid='true'],
@@ -1024,11 +1112,61 @@ label[for='keep-aspect-ratio'] {
   cursor: default;
 }
 
-.selection-overlay {
+/* Area the Eraser will clear: a ring readable on any background, centered on the pointer. */
+.eraser-preview {
   position: absolute;
-  border: 1px dashed var(--accent);
-  background: rgb(108 124 255 / 12%);
+  box-sizing: border-box;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 75%),
+    inset 0 0 0 1px rgb(0 0 0 / 75%);
+  transform: translate(-50%, -50%);
   pointer-events: none;
+}
+
+.curve-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.curve-overlay-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.curve-overlay[data-draft='true'] .curve-overlay-path {
+  stroke-dasharray: 4 3;
+}
+
+.curve-overlay-handle-line {
+  stroke: rgb(108 124 255 / 70%);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.curve-overlay-handle {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.curve-overlay-anchor {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.curve-overlay-anchor[data-selected='true'] {
+  fill: var(--accent);
 }
 
 .placement-overlay {

@@ -2,7 +2,7 @@
 export const DEFAULT_FPS = 24;
 export const FPS_PRESETS: readonly number[] = [24, 30, 60, 120];
 /** Upper bound that keeps the playback timer from spinning; any positive integer up to this is accepted. */
-export const MAX_FPS = 1000;
+export const MAX_FPS = 120;
 
 export const DEFAULT_ZOOM = 100;
 export const MIN_ZOOM = 1;
@@ -35,3 +35,15 @@ export const STABILIZE_SCREEN_RADIUS = 15;
 
 /** Opacity of a pen stroke at zero pressure when pressure controls opacity; full pressure is fully opaque. */
 export const MIN_PRESSURE_OPACITY = 0.1;
+
+/** Largest distance, in canvas pixels, between a flattened Bézier path and the true curve. */
+export const CURVE_FLATNESS = 0.2;
+/** Anchors closer than this (canvas pixels) to their neighbor are rejected. */
+export const MIN_ANCHOR_DISTANCE = 1;
+/** Picking tolerances of the Bézier tool, in screen pixels (independent of zoom). */
+export const CURVE_HIT_SCREEN_PX = 6;
+export const CURVE_HANDLE_HIT_SCREEN_PX = 8;
+/** How far the pointer must move before a press turns into a drag, in screen pixels. */
+export const CURVE_DRAG_SCREEN_PX = 3;
+/** Anchors placed closer than this (screen pixels) to the previous one are ignored, which makes a double-click safe. */
+export const CURVE_DOUBLE_CLICK_SCREEN_PX = 4;

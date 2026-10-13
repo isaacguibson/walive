@@ -33,6 +33,14 @@ interface EditorProps {
 
 const TEXT_INPUT_TYPES = new Set(['', 'text', 'number', 'search', 'email', 'url', 'tel', 'password']);
 
+/** Controls that use Space and Enter themselves. */
+const INTERACTIVE_SELECTOR =
+  'button, input, select, textarea, summary, a[href], [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="option"], [role="slider"], [role="combobox"]';
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(INTERACTIVE_SELECTOR) !== null;
+}
+
 /** True for elements where Ctrl+C/V/X/Z must keep their native text behavior. */
 function isTextEditingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -72,13 +80,7 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
       if (isTextEditingTarget(event.target)) {
         return;
       }
-      if (
-        event.key === ' ' &&
-        event.target instanceof Element &&
-        event.target.closest(
-          'button, input, select, textarea, summary, a[href], [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="option"], [role="slider"], [role="combobox"]'
-        ) !== null
-      ) {
+      if (event.key === ' ' && isInteractiveTarget(event.target)) {
         return;
       }
       if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="menu"]') !== null) {
@@ -86,6 +88,10 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
       }
       const action = matchShortcut(event);
       if (action === null) {
+        return;
+      }
+      // Curve keys belong to the Bézier tool and must not steal Enter, Escape or Delete from other tools or controls.
+      if (action.startsWith('curve.') && (session.getSnapshot().state.selectedTool !== 'bezier' || isInteractiveTarget(event.target))) {
         return;
       }
       if (action === 'playback.toggle' && event.repeat) {
@@ -248,6 +254,17 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
           <div className="editor-side-panel" style={{ width: inspectorWidth }}>
             <ToolOptions
               state={state}
+              selectedCurve={snapshot.activeLayer.curves.find((curve) => curve.id === state.curveEditor.selectedCurveId) ?? null}
+              curve={{
+                onBrushTypeChange: (id) => session.setCurveBrushType(id),
+                onBrushSettingChange: (key, value) => session.setCurveBrushSetting(key, value),
+                onSizeChange: (size) => session.setCurveSize(size),
+                onOpacityChange: (percent) => session.setCurveOpacity(percent),
+                onApplyStyle: () => session.applyCurveStyle(),
+                onAnchorTypeChange: (type) => session.setSelectedAnchorType(type),
+                onRemoveAnchor: () => session.removeSelectedAnchor(),
+                onDeleteCurve: () => session.deleteSelectedCurve()
+              }}
               onColorChange={(color) => session.setColor(color)}
               onBrushSizeChange={(size) => session.setBrushSize(size)}
               onBrushTypeChange={(id) => session.setBrushType(id)}

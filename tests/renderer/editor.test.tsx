@@ -175,8 +175,11 @@ describe('layout and tooltips', () => {
 
   it('uses English labels for the tools', async () => {
     await renderReadyEditor();
-    for (const name of ['Brush', 'Eraser', 'Fill Tool', 'Color Picker', 'Selection Tool', 'Undo', 'Redo']) {
+    for (const name of ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Undo', 'Redo']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+    for (const name of ['Color Picker', 'Selection Tool']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
   });
 });
@@ -555,7 +558,7 @@ describe('placing an image on the canvas', () => {
 describe('tools', () => {
   it('has Brush selected and exactly one tool selected at a time', async () => {
     const { user } = await renderReadyEditor();
-    const tools = ['Brush', 'Eraser', 'Fill Tool', 'Color Picker', 'Selection Tool'];
+    const tools = ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool'];
     expect(screen.getByRole('button', { name: 'Brush' })).toHaveAttribute('aria-pressed', 'true');
     for (const name of tools) {
       await user.click(screen.getByRole('button', { name }));
@@ -572,23 +575,60 @@ describe('tools', () => {
     expect(options.getByLabelText('Color')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Eraser' }));
-    expect(options.getByLabelText('Size')).toHaveValue('20');
+    expect(options.getByRole('slider', { name: 'Size' })).toHaveValue('20');
     expect(options.queryByLabelText('Color')).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole('button', { name: 'Color Picker' }));
-    expect(options.getByRole('img', { name: /Current color/ })).toBeInTheDocument();
+  it('keeps the chosen color in the Color field', async () => {
+    await renderReadyEditor();
+    const color = screen.getByLabelText('Color');
+    fireEvent.change(color, { target: { value: '#ff8800' } });
+    expect(color).toHaveValue('#ff8800');
+  });
+
+  it('changes the eraser size with a slider', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    const size = screen.getByRole('slider', { name: 'Size' });
+    fireEvent.change(size, { target: { value: '40' } });
+    expect(size).toHaveValue('40');
+  });
+
+  it('previews the area the Eraser will clear while the pointer is over the canvas', async () => {
+    const { user } = await renderReadyEditor();
+    const target = canvas();
+    fireEvent.pointerMove(target, { pointerId: 1, buttons: 0, clientX: 30, clientY: 20 });
+    expect(screen.queryByTestId('eraser-preview')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    fireEvent.pointerMove(target, { pointerId: 1, buttons: 0, clientX: 30, clientY: 20 });
+    const preview = screen.getByTestId('eraser-preview');
+    expect(preview).toHaveStyle({ left: '30px', top: '20px', width: '20px', height: '20px' });
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Size' }), { target: { value: '40' } });
+    expect(screen.getByTestId('eraser-preview')).toHaveStyle({ width: '40px', height: '40px' });
+
+    fireEvent.pointerLeave(target);
+    expect(screen.queryByTestId('eraser-preview')).not.toBeInTheDocument();
+  });
+
+  it('hides the eraser preview when another tool is selected', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    fireEvent.pointerMove(canvas(), { pointerId: 1, buttons: 0, clientX: 10, clientY: 10 });
+    expect(screen.getByTestId('eraser-preview')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    expect(screen.queryByTestId('eraser-preview')).not.toBeInTheDocument();
   });
 
   it('validates the size and keeps the last valid value', async () => {
     await renderReadyEditor();
-    const size = screen.getByLabelText('Size');
-    fireEvent.change(size, { target: { value: '0' } });
-    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number from 1 to 500.');
-    fireEvent.change(size, { target: { value: '30' } });
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    fireEvent.change(size, { target: { value: 'abc' } });
-    fireEvent.blur(size);
-    expect(size).toHaveValue('30');
+    const size = screen.getByRole('slider', { name: 'Size' });
+    expect(size).toHaveValue('12');
+    fireEvent.change(size, { target: { value: '1' } });
+    expect(size).toHaveValue('1');
+    fireEvent.change(size, { target: { value: '500' } });
+    expect(size).toHaveValue('500');
   });
 
   it('draws on the canvas, marks the project as changed and saves the pixels', async () => {
@@ -616,16 +656,6 @@ describe('tools', () => {
     await user.click(screen.getByRole('button', { name: 'Redo' }));
     expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
   });
-
-  it('selects a rectangular area with the Selection Tool', async () => {
-    const { user } = await renderReadyEditor();
-    await user.click(screen.getByRole('button', { name: 'Selection Tool' }));
-    expect(screen.getByTestId('selection-info')).toHaveTextContent('Drag on the canvas to select an area.');
-    stroke([10, 10], [30, 20]);
-    expect(screen.getByTestId('selection-overlay')).toBeInTheDocument();
-    expect(screen.getByTestId('selection-info')).toHaveTextContent('Selection: 20 × 10 px at 10, 10');
-    expect(screen.getByRole('status')).toHaveTextContent('All changes saved');
-  });
 });
 
 describe('brush toggle buttons', () => {
@@ -648,20 +678,19 @@ describe('brush toggle buttons', () => {
 
   it('toggles each option independently and preserves the settings when switching tools', async () => {
     const { user } = await renderReadyEditor();
-    const input = screen.getByRole('textbox', { name: 'Size' });
-    await user.clear(input);
-    await user.type(input, '12');
+    const size = screen.getByRole('slider', { name: 'Size' });
+    fireEvent.change(size, { target: { value: '12' } });
 
     await user.click(screen.getByRole('button', { name: 'Use Pen Pressure' }));
     expect(screen.getByRole('button', { name: 'Use Pen Pressure' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Use Pen Pressure for Opacity' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: 'Stabilize Stroke' })).toHaveAttribute('aria-pressed', 'false');
-    expect(input).toBeDisabled();
-    expect(input).toHaveValue('12');
+    expect(size).toBeDisabled();
+    expect(size).toHaveValue('12');
 
     await user.click(screen.getByRole('button', { name: 'Use Pen Pressure for Opacity' }));
     await user.click(screen.getByRole('button', { name: 'Stabilize Stroke' }));
-    expect(screen.getByRole('textbox', { name: 'Size' })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: 'Size' })).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'Eraser' }));
     for (const [name] of TOGGLES) {
@@ -676,7 +705,7 @@ describe('brush toggle buttons', () => {
   it('keeps the size field editable when only pressure-sensitive opacity is enabled', async () => {
     const { user } = await renderReadyEditor();
     await user.click(screen.getByRole('button', { name: 'Use Pen Pressure for Opacity' }));
-    expect(screen.getByRole('textbox', { name: 'Size' })).toBeEnabled();
+    expect(screen.getByRole('slider', { name: 'Size' })).toBeEnabled();
   });
 });
 
@@ -721,7 +750,7 @@ describe('brush types', () => {
     const { user } = await renderReadyEditor();
     for (const id of ['pencil', 'charcoal', 'chalk', 'particle']) {
       await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), id);
-      expect(screen.getByRole('textbox', { name: 'Size' })).toBeInTheDocument();
+      expect(screen.getByRole('slider', { name: 'Size' })).toBeInTheDocument();
       expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Use Pen Pressure' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Stabilize Stroke' })).toBeInTheDocument();
@@ -745,6 +774,188 @@ describe('brush types', () => {
     await user.click(screen.getByRole('button', { name: 'Save Project' }));
     await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalled());
     expect(savedDocument(animationApi).frames[0]?.layers[0]?.pixels).toBeTruthy();
+  });
+});
+
+describe('Bézier curves', () => {
+  const NO_HANDLE = { x: 0, y: 0 };
+  const STORED_CURVE = {
+    id: 'curve-1',
+    anchors: [
+      { x: 10, y: 30, type: 'corner' as const, handleIn: NO_HANDLE, handleOut: NO_HANDLE },
+      { x: 50, y: 30, type: 'corner' as const, handleIn: NO_HANDLE, handleOut: NO_HANDLE }
+    ],
+    style: { brush: 'basic', settings: {}, color: '#ff0000', size: 4, opacity: 100, seed: 1 }
+  };
+
+  const anchors = () => screen.queryAllByTestId('curve-anchor');
+  const keyDown = (key: string, target: Element = document.body) => fireEvent.keyDown(target, { key });
+
+  async function selectBezier() {
+    const result = await renderReadyEditor();
+    await result.user.click(screen.getByRole('button', { name: 'Bézier Curve' }));
+    return result;
+  }
+
+  /** Places two anchors, leaving the curve as a draft. */
+  function placeAnchors(): void {
+    stroke([10, 30]);
+    stroke([50, 30]);
+  }
+
+  it('offers the tool and selects it like the other tools', async () => {
+    const { user } = await renderReadyEditor();
+    const button = screen.getByRole('button', { name: 'Bézier Curve' });
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    await user.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Brush' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows brush options with pressure disabled and no stabilization', async () => {
+    await selectBezier();
+    const options = within(screen.getByRole('region', { name: 'Tool Options' }));
+    expect(options.getByRole('combobox', { name: 'Brush Type' })).toBeInTheDocument();
+    expect(options.getByRole('textbox', { name: 'Size' })).toBeEnabled();
+    expect(options.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(options.getByLabelText('Color')).toBeInTheDocument();
+    expect(options.getByRole('button', { name: 'Use Pen Pressure' })).toBeDisabled();
+    expect(options.getByRole('button', { name: 'Use Pen Pressure for Opacity' })).toBeDisabled();
+    expect(options.queryByRole('button', { name: 'Stabilize Stroke' })).toBeNull();
+    expect(options.queryByRole('group', { name: 'Selected Curve' })).toBeNull();
+  });
+
+  it('keeps its options separate from the Brush tool', async () => {
+    const { user } = await renderReadyEditor();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), 'chalk');
+    await user.click(screen.getByRole('button', { name: 'Bézier Curve' }));
+    expect(screen.getByRole('combobox', { name: 'Brush Type' })).toHaveValue('basic');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), 'particle');
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    expect(screen.getByRole('combobox', { name: 'Brush Type' })).toHaveValue('chalk');
+  });
+
+  it('shows the anchors of the draft and finishes it with Enter', async () => {
+    await selectBezier();
+    placeAnchors();
+    expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'true');
+    expect(anchors()).toHaveLength(2);
+
+    keyDown('Enter');
+    expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'false');
+    expect(anchors()).toHaveLength(2);
+    expect(screen.getByRole('group', { name: 'Selected Curve' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+  });
+
+  it('cancels the draft with Escape', async () => {
+    await selectBezier();
+    placeAnchors();
+    keyDown('Escape');
+    expect(screen.queryByTestId('curve-overlay')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('All changes saved');
+  });
+
+  it('finishes the draft with a double-click on the canvas', async () => {
+    await selectBezier();
+    placeAnchors();
+    fireEvent.doubleClick(canvas(), { clientX: 50, clientY: 30 });
+    expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'false');
+    expect(anchors()).toHaveLength(2);
+  });
+
+  it('does not take Enter from a focused button', async () => {
+    await selectBezier();
+    placeAnchors();
+    keyDown('Enter', screen.getByRole('button', { name: 'Bézier Curve' }));
+    expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'true');
+  });
+
+  it('ignores the curve keys while another tool is selected', async () => {
+    const { user } = await selectBezier();
+    placeAnchors();
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    keyDown('Escape');
+    keyDown('Delete');
+    expect(screen.queryByTestId('curve-overlay')).toBeNull();
+    // The draft was committed when the tool changed and is untouched by those keys.
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('status')).toHaveTextContent('All changes saved');
+  });
+
+  it('deletes the selected curve from the options panel and brings it back with undo', async () => {
+    const { user } = await selectBezier();
+    placeAnchors();
+    keyDown('Enter');
+    const group = screen.getByRole('group', { name: 'Selected Curve' });
+    for (const button of within(group).getAllByRole('button')) {
+      expect(button).toHaveAttribute('title', expect.stringMatching(/\S/));
+    }
+
+    await user.click(within(group).getByRole('button', { name: 'Delete Curve' }));
+    expect(anchors()).toHaveLength(0);
+    expect(screen.queryByRole('group', { name: 'Selected Curve' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await user.click(screen.getByRole('button', { name: 'Bézier Curve' }));
+    stroke([30, 30]);
+    expect(anchors()).toHaveLength(2);
+  });
+
+  it('applies the current options to the selected curve only on request', async () => {
+    const { user, animationApi } = await selectBezier();
+    placeAnchors();
+    keyDown('Enter');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), 'chalk');
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalledTimes(1));
+    expect(savedDocument(animationApi).frames[0]?.layers[0]?.curves?.[0]?.style.brush).toBe('basic');
+
+    await user.click(screen.getByRole('button', { name: 'Apply Options to Curve' }));
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalledTimes(2));
+    expect(savedDocument(animationApi, 1).frames[0]?.layers[0]?.curves?.[0]?.style.brush).toBe('chalk');
+  });
+
+  it('saves curves with the layer instead of in its pixels', async () => {
+    const { user, animationApi } = await selectBezier();
+    placeAnchors();
+    keyDown('Enter');
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalledTimes(1));
+    const layer = savedDocument(animationApi).frames[0]?.layers[0];
+    expect(layer?.pixels).toBeNull();
+    expect(layer?.curves).toHaveLength(1);
+    expect(layer?.curves?.[0]?.anchors.map((item) => [item.x, item.y])).toEqual([
+      [10, 30],
+      [50, 30]
+    ]);
+  });
+
+  it('loads stored curves and lets the user select and delete them', async () => {
+    const stored: AnimationDocument = {
+      width: SIZE,
+      height: SIZE,
+      frames: [{ id: 'a', layers: [{ id: 'a1', name: 'Ink', visible: true, pixels: null, curves: [STORED_CURVE] }] }]
+    };
+    const { user } = await renderReadyEditor({ animationApi: createMockAnimationApi({ loadAnimation: async () => ok(stored) }) });
+    expect(screen.getByRole('status')).toHaveTextContent('All changes saved');
+    expect(screen.queryByTestId('curve-overlay')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Bézier Curve' }));
+    stroke([30, 30]);
+    expect(anchors()).toHaveLength(2);
+    keyDown('Delete');
+    expect(anchors()).toHaveLength(0);
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+  });
+
+  it('hides the editing marks during playback', async () => {
+    const { user } = await selectBezier();
+    placeAnchors();
+    keyDown('Enter');
+    await user.click(screen.getByRole('button', { name: 'Play Animation' }));
+    expect(screen.queryByTestId('curve-overlay')).toBeNull();
   });
 });
 
@@ -1067,7 +1278,7 @@ describe('playback, FPS and zoom', () => {
     await user.click(screen.getByRole('button', { name: 'Add Multiple Frames' }));
     await user.click(within(screen.getByRole('dialog', { name: 'Add Frames' })).getByRole('button', { name: 'Add' }));
     await user.click(frameButtons()[0] as HTMLElement);
-    fireEvent.change(screen.getByLabelText('FPS'), { target: { value: '1000' } });
+    fireEvent.change(screen.getByRole('slider', { name: 'FPS' }), { target: { value: '120' } });
     await user.click(screen.getByRole('button', { name: 'Loop Playback' }));
     expect(screen.getByRole('button', { name: 'Loop Playback' })).toHaveAttribute('aria-pressed', 'false');
 
@@ -1084,37 +1295,22 @@ describe('playback, FPS and zoom', () => {
     expect(loop).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('defaults to 24 FPS and offers the presets', async () => {
+  it('defaults to 24 FPS and uses the expected range', async () => {
     await renderReadyEditor();
-    const fps = screen.getByLabelText('FPS');
+    const fps = screen.getByRole('slider', { name: 'FPS' });
     expect(fps).toHaveValue('24');
-    const list = fps.getAttribute('list') ?? '';
-    const options = Array.from(document.getElementById(list)?.querySelectorAll('option') ?? []).map((option) => option.value);
-    expect(options).toEqual(['24', '30', '60', '120']);
+    expect(fps).toHaveAttribute('min', '1');
+    expect(fps).toHaveAttribute('max', '120');
   });
 
-  it('accepts only positive whole numbers as FPS', async () => {
+  it('accepts FPS changes within the slider range', async () => {
     await renderReadyEditor();
-    const fps = screen.getByLabelText('FPS');
-    for (const value of ['0', '-1', '1.5', 'abc', '']) {
-      fireEvent.change(fps, { target: { value } });
-      expect(screen.getByRole('alert'), value).toHaveTextContent('Enter a whole number from 1 to 1000.');
-      expect(screen.getByRole('button', { name: 'Play Animation' }), value).toBeDisabled();
-    }
-    for (const value of ['30', '60', '120', '7']) {
-      fireEvent.change(fps, { target: { value } });
-      expect(screen.queryByRole('alert'), value).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Play Animation' }), value).toBeEnabled();
-    }
-  });
-
-  it('restores the last valid FPS when the field loses focus', async () => {
-    await renderReadyEditor();
-    const fps = screen.getByLabelText('FPS');
-    fireEvent.change(fps, { target: { value: '60' } });
-    fireEvent.change(fps, { target: { value: 'abc' } });
-    fireEvent.blur(fps);
-    expect(fps).toHaveValue('60');
+    const fps = screen.getByRole('slider', { name: 'FPS' });
+    fireEvent.change(fps, { target: { value: '1' } });
+    expect(fps).toHaveValue('1');
+    fireEvent.change(fps, { target: { value: '120' } });
+    expect(fps).toHaveValue('120');
+    expect(screen.getByRole('button', { name: 'Play Animation' })).toBeEnabled();
   });
 
   it('changes the zoom and rejects invalid values', async () => {
@@ -1153,7 +1349,7 @@ describe('playback, FPS and zoom', () => {
   it('zoom and FPS changes do not make the project dirty', async () => {
     await renderReadyEditor();
     fireEvent.change(screen.getByLabelText('Zoom'), { target: { value: '150' } });
-    fireEvent.change(screen.getByLabelText('FPS'), { target: { value: '30' } });
+    fireEvent.change(screen.getByRole('slider', { name: 'FPS' }), { target: { value: '30' } });
     expect(screen.getByRole('status')).toHaveTextContent('All changes saved');
   });
 });
@@ -1181,7 +1377,7 @@ describe('keyboard shortcuts', () => {
     expect(frameButtons()).toHaveLength(frameCount);
   });
 
-  it('toggles playback with Space and keeps text inputs editable', async () => {
+  it('toggles playback with Space and keeps interactive controls focused', async () => {
     const { user } = await renderReadyEditor();
     const play = screen.getByRole('button', { name: 'Play Animation' });
     await user.keyboard(' ');
@@ -1189,7 +1385,7 @@ describe('keyboard shortcuts', () => {
     await user.keyboard(' ');
     expect(screen.getByRole('button', { name: 'Play Animation' })).toBeInTheDocument();
 
-    const fps = screen.getByLabelText('FPS');
+    const fps = screen.getByRole('slider', { name: 'FPS' });
     await user.click(fps);
     await user.keyboard(' ');
     expect(fps).toHaveFocus();
@@ -1222,7 +1418,7 @@ describe('keyboard shortcuts', () => {
 
   it('keeps native text editing shortcuts inside inputs', async () => {
     const { user } = await renderReadyEditor();
-    await user.click(screen.getByLabelText('FPS'));
+    await user.click(screen.getByLabelText('Zoom'));
     await user.keyboard('{Control>}d{/Control}');
     expect(frameButtons()).toHaveLength(1);
   });

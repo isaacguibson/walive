@@ -7,7 +7,7 @@ import { makeSession } from './helpers';
 
 describe('FPS validation', () => {
   it('accepts positive integers, including the presets', () => {
-    for (const value of [1, 24, 30, 60, 120, 240, '24', ' 48 ', MAX_FPS]) {
+    for (const value of [1, 24, 30, 60, 120, '24', ' 48 ', MAX_FPS]) {
       expect(parseFps(value), String(value)).toBe(Number(String(value).trim()));
     }
   });

@@ -5,10 +5,9 @@ import type { IconName } from './icons';
 
 const TOOL_ICONS: Record<ToolType, IconName> = {
   brush: 'brush',
+  bezier: 'bezier',
   eraser: 'eraser',
-  fill: 'fill',
-  eyedropper: 'eyedropper',
-  selection: 'selection'
+  fill: 'fill'
 };
 
 interface ToolPanelProps {

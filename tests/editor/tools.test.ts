@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { STABILIZE_SCREEN_RADIUS } from '@editor/constants';
-import { getPixel, isDrawingBlank } from '@editor/drawing/raster';
+import { isDrawingBlank } from '@editor/drawing/raster';
 import { StrokeStabilizer } from '@editor/drawing/stabilizer';
 import { click, drag, makeSession, paintRed, pixelAt, RED, SIZE, TRANSPARENT } from './helpers';
 
@@ -209,69 +209,11 @@ describe('fill tool', () => {
   });
 });
 
-describe('color picker', () => {
-  it('uses the visible color under the pointer as the active color', () => {
-    const session = makeSession();
-    paintRed(session);
-    session.setColor('#123456');
-    session.selectTool('eyedropper');
-    click(session, 5.5, 5.5);
-    expect(session.getSnapshot().state.color).toBe('#ff0000');
-  });
-
-  it('keeps the current color over transparent or outside areas', () => {
-    const session = makeSession();
-    session.setColor('#123456');
-    session.selectTool('eyedropper');
-    click(session, 1, 1);
-    click(session, -5, 40);
-    expect(session.getSnapshot().state.color).toBe('#123456');
-  });
-
-  it('does not modify the drawing', () => {
-    const session = makeSession();
-    paintRed(session);
-    session.selectTool('eyedropper');
-    click(session, 5.5, 5.5);
-    expect(getPixel(session.getSnapshot().activeLayer.drawing, 5, 5)).toEqual(RED);
-    expect(session.engine.history.canUndo).toBe(true);
-    session.undo();
-    expect(session.getSnapshot().canUndo).toBe(false);
-  });
-});
-
-describe('selection tool', () => {
-  it('selects a rectangle clamped to the canvas', () => {
-    const session = makeSession();
-    session.selectTool('selection');
-    drag(session, [2, 3], [10, 9]);
-    expect(session.getSnapshot().state.selection).toEqual({ x: 2, y: 3, width: 8, height: 6 });
-    drag(session, [10, 9], [100, 100]);
-    expect(session.getSnapshot().state.selection).toEqual({ x: 10, y: 9, width: SIZE - 10, height: SIZE - 9 });
-  });
-
-  it('clears the previous selection when a new gesture starts without area', () => {
-    const session = makeSession();
-    session.selectTool('selection');
-    drag(session, [2, 3], [10, 9]);
-    click(session, 4, 4);
-    expect(session.getSnapshot().state.selection).toBeNull();
-  });
-
-  it('does not change pixels or the history', () => {
-    const session = makeSession();
-    session.selectTool('selection');
-    drag(session, [2, 3], [10, 9]);
-    expect(session.getSnapshot().canUndo).toBe(false);
-    expect(session.getSnapshot().isDirty).toBe(false);
-  });
-});
-
 describe('tool selection', () => {
   it('has Brush selected by default and switches tools', () => {
     const session = makeSession();
     expect(session.getSnapshot().state.selectedTool).toBe('brush');
-    for (const tool of ['eraser', 'fill', 'eyedropper', 'selection', 'brush'] as const) {
+    for (const tool of ['bezier', 'eraser', 'fill', 'brush'] as const) {
       session.selectTool(tool);
       expect(session.getSnapshot().state.selectedTool).toBe(tool);
     }

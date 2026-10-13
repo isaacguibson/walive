@@ -1,7 +1,10 @@
 import { MAX_ADD_FRAMES, DEFAULT_LAYER_NAME } from '../constants';
+import { CurveEdit } from '../curves/curveEdit';
+import type { BezierCurve } from '../curves/curve';
+import { CurveCache } from '../curves/render';
 import { StrokeSession } from '../drawing/stroke';
 import { EditorError } from '../errors';
-import { HistoryManager, type Command } from '../history/history';
+import { HistoryManager, type Command, type CommandFocus } from '../history/history';
 import { createIdGenerator } from '../ids';
 import type { Frame, Layer } from '../model';
 import { ANIMATION_LIMITS } from '@shared/types/animation';
@@ -272,7 +275,12 @@ export class AnimationEngine {
     const frame = this.requireFrame(frameId);
     const cleared: Frame = {
       id: frame.id,
-      layers: frame.layers.map((layer) => ({ ...layer, drawing: createDrawing(this.width, this.height) }))
+      layers: frame.layers.map((layer) => ({
+        ...layer,
+        drawing: createDrawing(this.width, this.height),
+        curves: [],
+        curveCache: new CurveCache(this.width, this.height)
+      }))
     };
     this.commit('Clear frame', {
       frames: this.replaceFrame(frame.id, cleared),
@@ -449,11 +457,7 @@ export class AnimationEngine {
    * result of the gesture is recorded in the history when it is committed.
    */
   beginStroke(label: string): StrokeSession {
-    const frame = this.getActiveFrame();
-    const layer = this.getActiveLayer();
-    if (!layer.visible) {
-      throw new EditorError('LAYER_HIDDEN', 'The active layer is hidden. Show the layer to draw on it.');
-    }
+    const { frame, layer } = this.requireEditableLayer();
     return new StrokeSession(label, { frameId: frame.id, layerId: layer.id }, layer.drawing, {
       record: (command) => {
         this.history.record(command);
@@ -461,6 +465,26 @@ export class AnimationEngine {
       },
       contentChanged: () => this.emitContent()
     });
+  }
+
+  /**
+   * Starts a gesture on the curves of the active layer. Every update is shown at once;
+   * committing it records a single history entry.
+   */
+  beginCurveEdit(label: string): CurveEdit {
+    const { frame, layer } = this.requireEditableLayer();
+    return new CurveEdit(label, { frameId: frame.id, layerId: layer.id }, layer.curves, {
+      setCurves: (focus, curves) => this.setCurves(focus, curves),
+      record: (command) => {
+        this.history.record(command);
+        this.emit();
+      }
+    });
+  }
+
+  /** A new identifier, unique in this project. */
+  createId(): string {
+    return this.newId();
   }
 
   // ---- History -----------------------------------------------------------
@@ -486,6 +510,27 @@ export class AnimationEngine {
   }
 
   // ---- Internals ---------------------------------------------------------
+
+  private requireEditableLayer(): { frame: Frame; layer: Layer } {
+    const frame = this.getActiveFrame();
+    const layer = this.getActiveLayer();
+    if (!layer.visible) {
+      throw new EditorError('LAYER_HIDDEN', 'The active layer is hidden. Show the layer to draw on it.');
+    }
+    return { frame, layer };
+  }
+
+  /** Replaces the curves of a layer. Does nothing when the layer no longer exists. */
+  private setCurves(focus: CommandFocus, curves: readonly BezierCurve[]): void {
+    const frame = this.getFrame(focus.frameId);
+    if (frame === null || !frame.layers.some((layer) => layer.id === focus.layerId)) {
+      return;
+    }
+    const layers = frame.layers.map((layer) => (layer.id === focus.layerId ? { ...layer, curves } : layer));
+    this.frames = this.replaceFrame(frame.id, { id: frame.id, layers });
+    this.emit();
+    this.emitContent();
+  }
 
   private afterHistoryChange(command: Command | null): boolean {
     if (command === null) {

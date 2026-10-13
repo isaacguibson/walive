@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react';
-import { FPS_PRESETS, MAX_FPS, MAX_ZOOM } from '@editor/constants';
+import { MAX_FPS, MAX_ZOOM } from '@editor/constants';
 import type { EditorState } from '@editor/model';
-import { parseFps, parseZoom } from '@editor/validation';
+import { parseZoom } from '@editor/validation';
 import { IconButton } from './IconButton';
 
 interface PlaybackBarProps {
@@ -28,15 +28,8 @@ export function PlaybackBar({
 }: PlaybackBarProps) {
   const fpsId = useId();
   const zoomId = useId();
-  const presetsId = useId();
-  const [fpsDraft, setFpsDraft] = useState(String(state.fps));
   const [zoomDraft, setZoomDraft] = useState(String(state.zoom));
-  const fpsInvalid = parseFps(fpsDraft) === null;
   const zoomInvalid = parseZoom(zoomDraft) === null;
-
-  useEffect(() => {
-    setFpsDraft(String(state.fps));
-  }, [state.fps]);
 
   useEffect(() => {
     setZoomDraft(String(state.zoom));
@@ -51,7 +44,7 @@ export function PlaybackBar({
         label={playLabel}
         variant="round"
         size={20}
-        disabled={!state.isPlaying && (fpsInvalid || !canPlay)}
+        disabled={!state.isPlaying && !canPlay}
         onClick={onTogglePlayback}
       />
       <IconButton
@@ -67,29 +60,16 @@ export function PlaybackBar({
         <label htmlFor={fpsId}>FPS</label>
         <input
           id={fpsId}
-          className="bar-input"
-          type="text"
-          inputMode="numeric"
-          list={presetsId}
-          value={fpsDraft}
-          title="Frames per second (any whole number from 1 to 1000)"
-          aria-invalid={fpsInvalid}
-          onChange={(event) => {
-            setFpsDraft(event.target.value);
-            onFpsChange(event.target.value);
-          }}
-          onBlur={() => setFpsDraft(String(state.fps))}
+          className="bar-input bar-input-range"
+          type="range"
+          min={1}
+          max={MAX_FPS}
+          step={1}
+          value={state.fps}
+          title="Frames per second"
+          onChange={(event) => onFpsChange(event.target.value)}
         />
-        <datalist id={presetsId}>
-          {FPS_PRESETS.map((preset) => (
-            <option key={preset} value={String(preset)} />
-          ))}
-        </datalist>
-        {fpsInvalid && (
-          <span className="form-error bar-error" role="alert">
-            Enter a whole number from 1 to {MAX_FPS}.
-          </span>
-        )}
+        <span className="unit range-value">{state.fps}</span>
       </div>
 
       <div className="bar-spacer" />

@@ -1,10 +1,8 @@
 import { AnimationEngine } from './animation/animationEngine';
 import { applicationFrameClipboard, type FrameClipboardStore } from './animation/clipboard';
 import { toAnimationDocument } from './animation/serialization';
-import { defaultBrushSettings, findBrush, sanitizeBrushSettings } from './brushes/registry';
+import { BrushConfig } from './brushes/brushConfig';
 import {
-  DEFAULT_BRUSH_OPACITY,
-  DEFAULT_BRUSH_SIZE,
   DEFAULT_COLOR,
   DEFAULT_ERASER_SIZE,
   DEFAULT_FPS,
@@ -13,14 +11,14 @@ import {
   MAX_CANVAS_PIXELS,
   STABILIZE_SCREEN_RADIUS
 } from './constants';
-import { compositePixel } from './drawing/raster';
+import type { AnchorType, CurveStyle } from './curves/curve';
 import { EditorError } from './errors';
-import type { BrushId, EditorState, Frame, Layer, Rect, ToolType } from './model';
+import type { CurveEditorState, EditorState, Frame, Layer, ToolType } from './model';
 import { PlaybackController, browserClock, type PlaybackClock } from './playback/playbackController';
 import type { ShortcutAction } from './shortcuts/shortcuts';
-import { createTools } from './tools';
-import type { EditorTool, ToolContext, ToolPointerEvent } from './tools/tool';
-import { parseFps, parseHexColor, parseToolSize, parseZoom, toHexColor } from './validation';
+import { createTools, type Tools } from './tools';
+import type { ToolContext, ToolPointerEvent } from './tools/tool';
+import { parseFps, parseHexColor, parseToolSize, parseZoom } from './validation';
 import type { AnimationDocument } from '@shared/types/animation';
 
 export interface EditorSessionOptions {
@@ -78,7 +76,7 @@ export class EditorSession {
   readonly playback: PlaybackController;
   readonly clipboard: FrameClipboardStore;
 
-  private readonly tools: Record<ToolType, EditorTool>;
+  private readonly tools: Tools;
   private readonly listeners = new Set<() => void>();
   private clipboardUnsubscribe: (() => void) | null = null;
   private cachedClipboard: unknown = undefined;
@@ -87,11 +85,9 @@ export class EditorSession {
 
   private selectedTool: ToolType = 'brush';
   private color = DEFAULT_COLOR;
-  private brushSize = DEFAULT_BRUSH_SIZE;
-  private brushOpacity = DEFAULT_BRUSH_OPACITY;
-  private brushType: BrushId = 'basic';
-  /** Every brush type keeps its own settings while the session lasts. */
-  private readonly brushSettings = defaultBrushSettings();
+  private readonly brush = new BrushConfig();
+  private readonly curveBrush = new BrushConfig();
+  private curveEditor: CurveEditorState = { draft: null, selectedCurveId: null, selectedAnchor: null };
   private readonly strokeSeed: () => number;
   private usePenPressure = false;
   private usePenPressureOpacity = false;
@@ -101,7 +97,6 @@ export class EditorSession {
   private zoom = DEFAULT_ZOOM;
   private fps = DEFAULT_FPS;
   private loop = true;
-  private selection: Rect | null = null;
   private error: string | null = null;
   private activePointerId: number | null = null;
 
@@ -161,6 +156,7 @@ export class EditorSession {
     }
     this.cachedClipboard = clipboardValue;
     const activeFrame = this.engine.getActiveFrame();
+    const brush = this.brush.state;
     this.cached = {
       version: this.version,
       width: this.engine.width,
@@ -174,15 +170,16 @@ export class EditorSession {
         loopPlayback: this.loop,
         isPlaying: this.playback.isPlaying,
         color: this.color,
-        brushSize: this.brushSize,
-        brushOpacity: this.brushOpacity,
-        brushType: this.brushType,
-        brushSettings: this.brushSettings[this.brushType],
+        brushSize: brush.size,
+        brushOpacity: brush.opacity,
+        brushType: brush.type,
+        brushSettings: brush.settings,
         usePenPressure: this.usePenPressure,
         usePenPressureOpacity: this.usePenPressureOpacity,
         stabilizeStroke: this.stabilizeStroke,
         eraserSize: this.eraserSize,
-        selection: this.selection
+        curveBrush: this.curveBrush.state,
+        curveEditor: this.curveEditor
       },
       frames: this.engine.getFrames(),
       activeFrame,
@@ -221,39 +218,41 @@ export class EditorSession {
   }
 
   setBrushSize(value: string | number): boolean {
-    const size = parseToolSize(value);
-    if (size === null) {
-      return false;
-    }
-    this.brushSize = size;
-    this.bump();
-    return true;
+    return this.changeBrush(this.brush.setSize(value));
   }
 
   /** Selects a brush type; unknown types fall back to the Basic Brush. Existing strokes are not affected. */
   setBrushType(id: string): void {
-    const brush = findBrush(id);
-    if (brush.id === this.brushType) {
-      return;
-    }
-    this.brushType = brush.id;
-    this.bump();
+    this.changeBrush(this.brush.setType(id));
   }
 
   /** Changes one option of the selected brush type; invalid values are clamped or replaced by the default. */
   setBrushSetting(key: string, value: number): void {
-    const brush = findBrush(this.brushType);
-    this.brushSettings[brush.id] = sanitizeBrushSettings(brush, { ...this.brushSettings[brush.id], [key]: value });
+    this.brush.setSetting(key, value);
     this.bump();
   }
 
   /** Sets the base opacity of brush strokes, in percent; values are rounded and clamped to 0-100. */
   setBrushOpacity(percent: number): void {
-    if (!Number.isFinite(percent)) {
-      return;
-    }
-    this.brushOpacity = Math.min(100, Math.max(0, Math.round(percent)));
+    this.changeBrush(this.brush.setOpacity(percent));
+  }
+
+  /** Options of new curves. They have no effect on curves that already exist (see `applyCurveStyle`). */
+  setCurveSize(value: string | number): boolean {
+    return this.changeBrush(this.curveBrush.setSize(value));
+  }
+
+  setCurveBrushType(id: string): void {
+    this.changeBrush(this.curveBrush.setType(id));
+  }
+
+  setCurveBrushSetting(key: string, value: number): void {
+    this.curveBrush.setSetting(key, value);
     this.bump();
+  }
+
+  setCurveOpacity(percent: number): void {
+    this.changeBrush(this.curveBrush.setOpacity(percent));
   }
 
   setUsePenPressure(enabled: boolean): void {
@@ -344,6 +343,48 @@ export class EditorSession {
     return this.activePointerId !== null;
   }
 
+  /** Second click of a double-click, already converted to canvas pixels. */
+  doubleClick(event: ToolPointerEvent): void {
+    if (this.playback.isPlaying || this.activePointerId !== null) {
+      return;
+    }
+    this.guardTool(() => this.tools[this.selectedTool].doubleClick?.(event));
+  }
+
+  // ---- Bézier curves (act on the curve being drawn or the selected one) ---
+
+  /** Completes the curve being drawn. */
+  finishCurve(): void {
+    this.curveAction((tool) => tool.finish());
+  }
+
+  /** Discards the curve being drawn; without one, clears the curve selection. */
+  cancelCurve(): void {
+    this.curveAction((tool) => tool.cancel());
+  }
+
+  /** Removes the selected anchor or, when the path needs it, the whole selected curve. */
+  deleteCurveSelection(): void {
+    this.curveAction((tool) => tool.deleteSelection());
+  }
+
+  removeSelectedAnchor(): void {
+    this.curveAction((tool) => tool.removeSelectedAnchor());
+  }
+
+  deleteSelectedCurve(): void {
+    this.curveAction((tool) => tool.deleteSelectedCurve());
+  }
+
+  setSelectedAnchorType(type: AnchorType): void {
+    this.curveAction((tool) => tool.setAnchorType(type));
+  }
+
+  /** Gives the selected curve the current options of the Bézier tool. */
+  applyCurveStyle(): void {
+    this.curveAction((tool) => tool.applyStyle());
+  }
+
   // ---- View, FPS, playback -----------------------------------------------
 
   /** Sets the zoom percentage. Values that are not greater than zero are rejected. */
@@ -383,6 +424,7 @@ export class EditorSession {
     if (this.activePointerId !== null) {
       return false;
     }
+    this.settleCurve();
     return this.playback.start();
   }
 
@@ -431,6 +473,7 @@ export class EditorSession {
       return;
     }
     this.playback.stop();
+    this.settleCurve();
     this.run(() => this.engine.selectFrame(frameId));
   }
 
@@ -439,6 +482,7 @@ export class EditorSession {
       return;
     }
     this.playback.stop();
+    this.settleCurve();
     this.run(() => this.engine.selectLayer(layerId));
   }
 
@@ -541,6 +585,11 @@ export class EditorSession {
   // ---- History -----------------------------------------------------------
 
   undo(): void {
+    // An unfinished curve is the latest action: undoing discards it instead of stepping back in the history.
+    if (this.curveEditor.draft !== null) {
+      this.cancelCurve();
+      return;
+    }
     this.edit(() => this.engine.undo());
   }
 
@@ -577,6 +626,20 @@ export class EditorSession {
         return true;
       case 'history.redo':
         this.redo();
+        return true;
+      case 'curve.finish':
+      case 'curve.cancel':
+      case 'curve.delete':
+        if (this.selectedTool !== 'bezier') {
+          return false;
+        }
+        if (action === 'curve.finish') {
+          this.finishCurve();
+        } else if (action === 'curve.cancel') {
+          this.cancelCurve();
+        } else {
+          this.deleteCurveSelection();
+        }
         return true;
       default:
         return false;
@@ -634,7 +697,29 @@ export class EditorSession {
     if (this.playback.isPlaying || this.activePointerId !== null) {
       return undefined;
     }
+    this.settleCurve();
     return this.run(operation);
+  }
+
+  /** Commits the curve being drawn, so that changing frame, layer or content never leaves a loose path behind. */
+  private settleCurve(): void {
+    if (this.curveEditor.draft !== null) {
+      this.run(() => this.tools.bezier.finish());
+    }
+  }
+
+  private curveAction(action: (tool: Tools['bezier']) => void): void {
+    if (this.playback.isPlaying || this.activePointerId !== null || this.selectedTool !== 'bezier') {
+      return;
+    }
+    this.guardTool(() => action(this.tools.bezier));
+  }
+
+  private changeBrush(applied: boolean): boolean {
+    if (applied) {
+      this.bump();
+    }
+    return applied;
   }
 
   private run<T>(operation: () => T): T | undefined {
@@ -679,12 +764,9 @@ export class EditorSession {
         }
       },
       getColor: () => parseHexColor(this.color) ?? [0, 0, 0],
-      setColor: (color) => {
-        this.setColor(toHexColor(color));
-      },
-      getBrushSize: () => this.brushSize,
-      getBrushOpacity: () => this.brushOpacity / 100,
-      getBrush: () => ({ brush: findBrush(this.brushType), settings: this.brushSettings[this.brushType] }),
+      getBrushSize: () => this.brush.state.size,
+      getBrushOpacity: () => this.brush.state.opacity / 100,
+      getBrush: () => this.brush.current,
       nextStrokeSeed: this.strokeSeed,
       getUsePenPressure: () => this.usePenPressure,
       getUsePenPressureOpacity: () => this.usePenPressureOpacity,
@@ -692,14 +774,37 @@ export class EditorSession {
       // The rope keeps a constant on-screen length, whatever the zoom.
       getStabilizeRadius: () => STABILIZE_SCREEN_RADIUS / (this.zoom / 100),
       getEraserSize: () => this.eraserSize,
-      pickColor: (x, y) => {
-        const pixel = compositePixel(this.engine.getActiveFrame().layers, x, y);
-        return pixel === null ? null : [pixel[0], pixel[1], pixel[2]];
+      beginCurveEdit: (label) => {
+        try {
+          return this.engine.beginCurveEdit(label);
+        } catch (error) {
+          if (error instanceof EditorError) {
+            this.reportError(error.message);
+            return null;
+          }
+          throw error;
+        }
       },
-      setSelection: (selection) => {
-        this.selection = selection;
+      canEditCurves: () => {
+        const editable = this.engine.getActiveLayer().visible;
+        if (!editable) {
+          this.reportError('The active layer is hidden. Show the layer to draw on it.');
+        }
+        return editable;
+      },
+      getCurves: () => this.engine.getActiveLayer().curves,
+      newCurveStyle: (): CurveStyle => {
+        const { brush, settings } = this.curveBrush.current;
+        const { size, opacity } = this.curveBrush.state;
+        return { brush: brush.id, settings, color: this.color, size, opacity, seed: this.strokeSeed() };
+      },
+      createId: () => this.engine.createId(),
+      toCanvasDistance: (screenPixels) => screenPixels / (this.zoom / 100),
+      setCurveEditor: (state) => {
+        this.curveEditor = state;
         this.bump();
-      }
+      },
+      reportError: (message) => this.reportError(message)
     };
   }
 }

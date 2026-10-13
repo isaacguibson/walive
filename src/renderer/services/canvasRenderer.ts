@@ -1,4 +1,4 @@
-import { consumeDirty } from '@editor/drawing/raster';
+import { consumeDirty, layerDrawings } from '@editor/drawing/raster';
 import type { DrawingData, Frame } from '@editor/model';
 
 interface LayerSurface {
@@ -33,12 +33,14 @@ export class CanvasRenderer {
     // Layers are listed top-most first, so paint from the end.
     for (let index = frame.layers.length - 1; index >= 0; index -= 1) {
       const layer = frame.layers[index];
-      if (layer === undefined || !layer.visible || layer.drawing.data === null) {
+      if (layer === undefined || !layer.visible) {
         continue;
       }
-      const surface = this.syncSurface(layer.drawing);
-      if (surface !== null) {
-        context.drawImage(surface.canvas, 0, 0);
+      for (const drawing of layerDrawings(layer)) {
+        const surface = this.syncSurface(drawing);
+        if (surface !== null) {
+          context.drawImage(surface.canvas, 0, 0);
+        }
       }
     }
   }

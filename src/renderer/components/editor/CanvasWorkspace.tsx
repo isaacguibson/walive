@@ -1,6 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent
+} from 'react';
 import type { EditorSession, EditorSnapshot } from '@editor/editorSession';
-import type { Rect } from '@editor/model';
+import type { Point, Rect } from '@editor/model';
 import {
   fitPlacementRect,
   movePlacement,
@@ -12,6 +20,7 @@ import { computeFitZoom, screenToCanvas, zoomFromWheel } from '@editor/viewport'
 import type { AssetsAPI } from '@shared/types/api';
 import { ASSET_DRAG_MIME } from '@shared/types/assets';
 import { CanvasRenderer } from '../../services/canvasRenderer';
+import { CurveOverlay } from './CurveOverlay';
 
 interface CanvasWorkspaceProps {
   session: EditorSession;
@@ -99,7 +108,7 @@ function sameRect(a: Rect, b: Rect): boolean {
 /** Area 4: the drawing surface. Displays the active frame and routes pointer input to the editor. */
 export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspaceProps) {
   const { width, height } = snapshot;
-  const { zoom, selectedTool, isPlaying, selection } = snapshot.state;
+  const { zoom, selectedTool, isPlaying, eraserSize } = snapshot.state;
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const onionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -112,6 +121,8 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
   const gestureRef = useRef<PlacementGesture | null>(null);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  /** Pointer position over the canvas, in canvas pixels; only tracked for the Eraser, whose preview follows it. */
+  const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [placement, setPlacementState] = useState<Placement | null>(null);
   zoomRef.current = zoom;
 
@@ -332,6 +343,9 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
       return;
     }
     const toolEvent = toEvent(event);
+    if (selectedTool === 'eraser') {
+      setHoverPoint(toolEvent === null ? null : { x: toolEvent.x, y: toolEvent.y });
+    }
     if (toolEvent !== null) {
       session.pointerMove(toolEvent);
     }
@@ -348,6 +362,15 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
       session.pointerUp(toolEvent);
     } else {
       session.pointerCancel(event.pointerId);
+    }
+  }
+
+  function onDoubleClick(event: ReactMouseEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const point =
+      canvas === null ? null : screenToCanvas(event.clientX, event.clientY, canvas.getBoundingClientRect(), width, height);
+    if (point !== null) {
+      session.doubleClick({ ...point, pointerId: 0, buttons: event.buttons });
     }
   }
 
@@ -444,6 +467,11 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
   }
 
   const scale = zoom / 100;
+  const { draft, selectedCurveId, selectedAnchor } = snapshot.state.curveEditor;
+  const overlayCurve =
+    selectedTool !== 'bezier' || isPlaying
+      ? null
+      : (draft ?? snapshot.activeLayer.curves.find((curve) => curve.id === selectedCurveId) ?? null);
   const activeIndex = snapshot.frames.findIndex((frame) => frame.id === snapshot.activeFrame.id);
   const referenceId = snapshot.manualReferenceFrameId ?? snapshot.frames[activeIndex - 1]?.id ?? null;
   const displayedReferenceId =
@@ -513,11 +541,23 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
             data-testid="drawing-canvas"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
+            onPointerLeave={() => setHoverPoint(null)}
             onPointerUp={onPointerUp}
             onPointerCancel={(event) => session.pointerCancel(event.pointerId)}
             onLostPointerCapture={(event) => session.pointerCancel(event.pointerId)}
             onContextMenu={(event) => event.preventDefault()}
+            onDoubleClick={onDoubleClick}
           />
+          {overlayCurve !== null && (
+            <CurveOverlay
+              curve={overlayCurve}
+              isDraft={draft !== null}
+              selectedAnchor={selectedAnchor}
+              width={width}
+              height={height}
+              scale={scale}
+            />
+          )}
           {placement !== null && (
             <div
               className="placement-overlay"
@@ -545,15 +585,16 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
               ))}
             </div>
           )}
-          {selection !== null && (
+          {selectedTool === 'eraser' && !isPlaying && hoverPoint !== null && (
             <div
-              className="selection-overlay"
-              data-testid="selection-overlay"
+              className="eraser-preview"
+              data-testid="eraser-preview"
+              aria-hidden="true"
               style={{
-                left: `${(selection.x / width) * 100}%`,
-                top: `${(selection.y / height) * 100}%`,
-                width: `${(selection.width / width) * 100}%`,
-                height: `${(selection.height / height) * 100}%`
+                left: hoverPoint.x * scale,
+                top: hoverPoint.y * scale,
+                width: eraserSize * scale,
+                height: eraserSize * scale
               }}
             />
           )}

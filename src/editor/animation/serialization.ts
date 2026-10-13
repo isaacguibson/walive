@@ -1,4 +1,6 @@
 import { createDrawing, isDrawingBlank } from '../drawing/raster';
+import { CurveCache } from '../curves/render';
+import { normalizeCurve } from '../curves/normalize';
 import { EditorError } from '../errors';
 import type { Frame } from '../model';
 import type { AnimationDocument } from '@shared/types/animation';
@@ -22,7 +24,8 @@ export function toAnimationDocument(
           id: layer.id,
           name: layer.name,
           visible: layer.visible,
-          pixels: data === null || isDrawingBlank(layer.drawing) ? null : new Uint8Array(data.buffer, data.byteOffset, data.length)
+          pixels: data === null || isDrawingBlank(layer.drawing) ? null : new Uint8Array(data.buffer, data.byteOffset, data.length),
+          ...(layer.curves.length > 0 ? { curves: layer.curves } : {})
         };
       })
     }))
@@ -46,7 +49,15 @@ export function framesFromAnimationDocument(document: AnimationDocument, width: 
         // Copy: the editor mutates pixels in place and must not alias transport buffers.
         drawing.data = new Uint8ClampedArray(layer.pixels);
       }
-      return { id: layer.id, name: layer.name, visible: layer.visible, drawing };
+      return {
+        id: layer.id,
+        name: layer.name,
+        visible: layer.visible,
+        drawing,
+        // Stored curves that describe nothing drawable are dropped instead of failing the whole project.
+        curves: (layer.curves ?? []).flatMap((curve) => normalizeCurve(curve) ?? []),
+        curveCache: new CurveCache(width, height)
+      };
     })
   }));
 }

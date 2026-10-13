@@ -4,11 +4,32 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '@core/errors';
 import { ProjectService } from '@core/project/projectService';
 import type { AnimationDocument } from '@shared/types/animation';
+import { CURVE_LIMITS, type BezierCurveData } from '@shared/types/curves';
 import { makeTempDir } from '../helpers/tempDir';
 
 const WIDTH = 4;
 const HEIGHT = 3;
 const LENGTH = WIDTH * HEIGHT * 4;
+
+const NO_HANDLE = { x: 0, y: 0 };
+
+function curve(id = 'curve-1'): BezierCurveData {
+  return {
+    id,
+    anchors: [
+      { x: 0.5, y: 1, type: 'corner', handleIn: NO_HANDLE, handleOut: { x: 1, y: -1 } },
+      { x: 3, y: 2, type: 'smooth', handleIn: { x: -1, y: 0 }, handleOut: { x: 1, y: 0 } }
+    ],
+    style: { brush: 'basic', settings: { hardness: 80 }, color: '#ff0000', size: 3, opacity: 50, seed: 7 }
+  };
+}
+
+function withCurves(curves: unknown): unknown {
+  const base = document();
+  const [first, ...rest] = base.frames;
+  const [layer, ...layers] = first?.layers ?? [];
+  return { ...base, frames: [{ ...first, layers: [{ ...layer, curves }, ...layers] }, ...rest] };
+}
 
 async function openSmallProject(): Promise<{ service: ProjectService; projectPath: string }> {
   const service = new ProjectService();
@@ -179,5 +200,65 @@ describe('animation persistence', () => {
     const service = new ProjectService();
     expect((await rejectionOf(service.loadAnimation())).code).toBe('NO_PROJECT_OPEN');
     expect((await rejectionOf(service.saveAnimation(document()))).code).toBe('NO_PROJECT_OPEN');
+  });
+});
+
+describe('curve persistence', () => {
+  it('round-trips the curves of a layer', async () => {
+    const { service } = await openSmallProject();
+    await service.saveAnimation(withCurves([curve('a'), curve('b')]));
+    const layer = (await service.loadAnimation())?.frames[0]?.layers[0];
+    expect(layer?.curves).toEqual([curve('a'), curve('b')]);
+  });
+
+  it('writes no curves key for layers without curves and loads older manifests', async () => {
+    const { service, projectPath } = await openSmallProject();
+    await service.saveAnimation(withCurves([]));
+    const manifestPath = path.join(projectPath, 'drawings', 'animation.json');
+    expect(await fs.readFile(manifestPath, 'utf8')).not.toContain('curves');
+    expect((await service.loadAnimation())?.frames[0]?.layers[0]?.curves).toBeUndefined();
+  });
+
+  it('keeps a layer that only has curves and no pixels', async () => {
+    const { service } = await openSmallProject();
+    const input = withCurves([curve()]) as AnimationDocument;
+    const layers = input.frames[0]?.layers ?? [];
+    await service.saveAnimation({ ...input, frames: [{ id: 'f', layers: [{ ...layers[0], pixels: null }] }] });
+    const layer = (await service.loadAnimation())?.frames[0]?.layers[0];
+    expect(layer?.pixels).toBeNull();
+    expect(layer?.curves).toHaveLength(1);
+  });
+
+  it('rejects malformed curves', async () => {
+    const { service } = await openSmallProject();
+    const good = curve();
+    const anchor = good.anchors[0];
+    const bad: unknown[] = [
+      'curves',
+      [{ ...good, id: '../evil' }],
+      [good, good],
+      [{ ...good, anchors: [anchor] }],
+      [{ ...good, anchors: [anchor, { ...anchor, x: Number.NaN }] }],
+      [{ ...good, anchors: [anchor, { ...anchor, x: CURVE_LIMITS.maxCoordinate + 1 }] }],
+      [{ ...good, anchors: [anchor, { ...anchor, type: 'round' }] }],
+      [{ ...good, anchors: [anchor, { ...anchor, handleOut: null }] }],
+      [{ ...good, style: { ...good.style, color: 'red' } }],
+      [{ ...good, style: { ...good.style, settings: { hardness: 'soft' } } }],
+      [{ ...good, style: { ...good.style, size: Infinity } }],
+      Array.from({ length: CURVE_LIMITS.maxCurvesPerLayer + 1 }, (_, index) => curve(`c${index}`))
+    ];
+    for (const curves of bad) {
+      expect((await rejectionOf(service.saveAnimation(withCurves(curves)))).code).toBe('INVALID_ANIMATION_DATA');
+    }
+  });
+
+  it('fails clearly when stored curves are damaged', async () => {
+    const { service, projectPath } = await openSmallProject();
+    await service.saveAnimation(withCurves([curve()]));
+    const manifestPath = path.join(projectPath, 'drawings', 'animation.json');
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as { frames: { layers: { curves: unknown }[] }[] };
+    (manifest.frames[0] as { layers: { curves: unknown }[] }).layers[0]!.curves = [{ id: 'x' }];
+    await fs.writeFile(manifestPath, JSON.stringify(manifest));
+    expect((await rejectionOf(service.loadAnimation())).code).toBe('INVALID_ANIMATION_DATA');
   });
 });

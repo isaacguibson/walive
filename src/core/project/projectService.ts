@@ -203,7 +203,13 @@ export class ProjectService {
           // Identical layers share one file; give each layer its own buffer.
           pixels = new Uint8Array(cached);
         }
-        layers.push({ id: layer.id, name: layer.name, visible: layer.visible, pixels });
+        layers.push({
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          pixels,
+          ...(layer.curves !== undefined ? { curves: layer.curves } : {})
+        });
       }
       frames.push({ id: frame.id, layers });
     }
@@ -250,7 +256,13 @@ export class ProjectService {
             keep.add(file);
           }
         }
-        layers.push({ id: layer.id, name: layer.name, visible: layer.visible, file });
+        layers.push({
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          file,
+          ...(layer.curves !== undefined && layer.curves.length > 0 ? { curves: [...layer.curves] } : {})
+        });
       }
       manifest.frames.push({ id: frame.id, layers });
     }

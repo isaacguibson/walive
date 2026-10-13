@@ -1,3 +1,5 @@
+import type { BezierCurveData } from './curves';
+
 /** Limits shared by the editor and the persistence layer. */
 export const ANIMATION_LIMITS = {
   maxFrames: 10_000,
@@ -12,6 +14,8 @@ export interface AnimationLayerData {
   visible: boolean;
   /** Raw non-premultiplied RGBA pixels (`width * height * 4` bytes), or `null` for a blank layer. */
   pixels: Uint8Array | null;
+  /** Bézier curves drawn above the pixels. Optional: layers saved before curves existed have none. */
+  curves?: readonly BezierCurveData[];
 }
 
 export interface AnimationFrameData {

@@ -7,7 +7,10 @@
  * stroke/patch mechanism so every change is undoable.
  */
 
-export type ToolType = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'selection';
+import type { BezierCurve } from './curves/curve';
+import type { CurveCache } from './curves/render';
+
+export type ToolType = 'brush' | 'bezier' | 'eraser' | 'fill';
 
 export type BrushId = 'basic' | 'pencil' | 'charcoal' | 'chalk' | 'particle';
 
@@ -29,6 +32,25 @@ export interface Rect {
 export type Rgb = readonly [number, number, number];
 export type Rgba = readonly [number, number, number, number];
 
+/** Size, opacity and brush type of a tool that paints with the brush engine. */
+export interface BrushConfigState {
+  readonly size: number;
+  /** Base opacity in percent (0-100). */
+  readonly opacity: number;
+  readonly type: BrushId;
+  /** Settings of the selected brush type; every type keeps its own for the whole session. */
+  readonly settings: BrushSettings;
+}
+
+/** What the Bézier tool is working on. Curves themselves live on the layers. */
+export interface CurveEditorState {
+  /** Path being created: not on the layer until it is finished. */
+  readonly draft: BezierCurve | null;
+  readonly selectedCurveId: string | null;
+  /** Index of the selected anchor of the selected curve or draft. */
+  readonly selectedAnchor: number | null;
+}
+
 /** Raster content of one layer. Logical size is the project canvas size. */
 export interface DrawingData {
   readonly width: number;
@@ -46,6 +68,10 @@ export interface Layer {
   readonly name: string;
   readonly visible: boolean;
   readonly drawing: DrawingData;
+  /** Bézier curves, drawn above `drawing`, bottom first. Replaced (never edited) when they change. */
+  readonly curves: readonly BezierCurve[];
+  /** Derived raster of `curves`; shared by the copies of a layer that differ only in their curves. */
+  readonly curveCache: CurveCache;
 }
 
 export interface Frame {
@@ -80,8 +106,9 @@ export interface EditorState {
   usePenPressureOpacity: boolean;
   stabilizeStroke: boolean;
   eraserSize: number;
-  /** Rectangle chosen with the Selection tool, in canvas pixels. */
-  selection: Rect | null;
+  /** Options of the Bézier tool, which keeps its own brush options apart from the Brush tool. */
+  curveBrush: BrushConfigState;
+  curveEditor: CurveEditorState;
 }
 
 export interface EditorDocumentState {

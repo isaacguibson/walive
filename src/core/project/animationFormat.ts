@@ -3,6 +3,8 @@ import { promisify } from 'node:util';
 import { deflate, inflate } from 'node:zlib';
 import { AppError } from '../errors';
 import { ANIMATION_LIMITS, type AnimationDocument } from '@shared/types/animation';
+import type { BezierCurveData } from '@shared/types/curves';
+import { parseCurves } from './curveFormat';
 
 const deflateAsync = promisify(deflate);
 const inflateAsync = promisify(inflate);
@@ -28,6 +30,8 @@ export interface StoredLayer {
   visible: boolean;
   /** Name of the file holding the pixels, or `null` for a blank layer. */
   file: string | null;
+  /** Optional in format v1; layers without curves simply omit it. */
+  curves?: BezierCurveData[];
 }
 
 export interface StoredFrame {
@@ -134,7 +138,8 @@ export function parseAnimationDocument(input: unknown): AnimationDocument {
         id: claim(parseId(rawLayer.id)),
         name: parseLayerName(rawLayer.name),
         visible: rawLayer.visible,
-        pixels: bytes
+        pixels: bytes,
+        ...(rawLayer.curves !== undefined ? { curves: parseCurves(rawLayer.curves) } : {})
       };
     });
     return { id, layers };
@@ -180,7 +185,8 @@ export function parseAnimationManifest(input: unknown): AnimationManifest {
         id: parseId(rawLayer.id),
         name: parseLayerName(rawLayer.name),
         visible: rawLayer.visible,
-        file: file ?? null
+        file: file ?? null,
+        ...(rawLayer.curves !== undefined ? { curves: parseCurves(rawLayer.curves) } : {})
       };
     });
     return { id: parseId(rawFrame.id), layers };

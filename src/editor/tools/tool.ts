@@ -1,5 +1,7 @@
 import type { BrushDefinition } from '../brushes/brush';
-import type { BrushSettings, DrawingData, Point, Rect, Rgb, ToolType } from '../model';
+import type { BezierCurve, CurveStyle } from '../curves/curve';
+import type { CurveEdit } from '../curves/curveEdit';
+import type { BrushSettings, CurveEditorState, DrawingData, Point, Rect, Rgb, ToolType } from '../model';
 
 /** Pointer position already converted to logical canvas pixels (HU_00004 §33, §55). */
 export interface ToolPointerEvent {
@@ -26,7 +28,6 @@ export interface ToolContext {
   /** Starts a gesture on the active layer; `null` (after reporting the reason) when drawing is not possible. */
   beginStroke(label: string): StrokeHandle | null;
   getColor(): Rgb;
-  setColor(color: Rgb): void;
   getBrushSize(): number;
   /** Base opacity of brush strokes, from 0 to 1. */
   getBrushOpacity(): number;
@@ -40,9 +41,20 @@ export interface ToolContext {
   /** Rope length of the stroke stabilizer, in canvas pixels. */
   getStabilizeRadius(): number;
   getEraserSize(): number;
-  /** Color of the visible canvas at a pixel; `null` when transparent. */
-  pickColor(x: number, y: number): Rgb | null;
-  setSelection(selection: Rect | null): void;
+  /** Starts a gesture on the curves of the active layer; `null` (after reporting the reason) when editing is not possible. */
+  beginCurveEdit(label: string): CurveEdit | null;
+  /** Whether the active layer accepts curves. Reports the reason when it does not. */
+  canEditCurves(): boolean;
+  /** Curves of the active layer. */
+  getCurves(): readonly BezierCurve[];
+  /** Style for a new curve: the options of the Bézier tool plus the drawing color. */
+  newCurveStyle(): CurveStyle;
+  createId(): string;
+  /** Converts a distance in screen pixels to canvas pixels at the current zoom. */
+  toCanvasDistance(screenPixels: number): number;
+  /** Publishes what the Bézier tool is working on, for the overlay and the options panel. */
+  setCurveEditor(state: CurveEditorState): void;
+  reportError(message: string): void;
 }
 
 export interface EditorTool {
@@ -53,6 +65,8 @@ export interface EditorTool {
   pointerDown(event: ToolPointerEvent): void;
   pointerMove(event: ToolPointerEvent): void;
   pointerUp(event: ToolPointerEvent): void;
+  /** Optional second click of a double-click, after the pointer events of both clicks. */
+  doubleClick?(event: ToolPointerEvent): void;
   /** The gesture was interrupted (lost capture, window blur...). Work done so far is kept. */
   pointerCancel(): void;
 }

@@ -103,6 +103,48 @@ export function isDrawingBlank(drawing: DrawingData): boolean {
   return true;
 }
 
+/** Source-over of `source` onto `target` inside `rect`. Only the target changes. */
+export function compositeRegion(target: DrawingData, source: DrawingData, rect: Rect): void {
+  if (source.data === null) {
+    return;
+  }
+  const destination = ensureData(target);
+  for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+    for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+      const index = (y * target.width + x) * 4;
+      const sourceAlpha = (source.data[index + 3] as number) / 255;
+      if (sourceAlpha === 0) {
+        continue;
+      }
+      const destinationAlpha = (destination[index + 3] as number) / 255;
+      const alpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+      for (let channel = 0; channel < 3; channel += 1) {
+        const color = (source.data[index + channel] as number) * sourceAlpha;
+        const below = (destination[index + channel] as number) * destinationAlpha * (1 - sourceAlpha);
+        destination[index + channel] = Math.round((color + below) / alpha);
+      }
+      destination[index + 3] = Math.round(alpha * 255);
+    }
+  }
+}
+
+/** Makes `rect` fully transparent. */
+export function clearRegion(drawing: DrawingData, rect: Rect): void {
+  if (drawing.data === null) {
+    return;
+  }
+  for (let row = 0; row < rect.height; row += 1) {
+    const start = ((rect.y + row) * drawing.width + rect.x) * 4;
+    drawing.data.fill(0, start, start + rect.width * 4);
+  }
+}
+
+/** The rasters that make up a layer, bottom first: its pixels, then its curves. Blank curves are left out. */
+export function layerDrawings(layer: Layer): readonly DrawingData[] {
+  const curves = layer.curveCache.rasterize(layer.curves);
+  return curves === null ? [layer.drawing] : [layer.drawing, curves];
+}
+
 /**
  * Color of the visible composite of `layers` at a pixel (source-over, bottom
  * layer first). Returns `null` when the pixel is fully transparent.
@@ -117,15 +159,17 @@ export function compositePixel(layers: readonly Layer[], x: number, y: number): 
     if (!layer.visible) {
       continue;
     }
-    const [sr, sg, sb, sa8] = getPixel(layer.drawing, x, y);
-    if (sa8 === 0) {
-      continue;
+    for (const drawing of layerDrawings(layer)) {
+      const [sr, sg, sb, sa8] = getPixel(drawing, x, y);
+      if (sa8 === 0) {
+        continue;
+      }
+      const sa = sa8 / 255;
+      red = sr * sa + red * (1 - sa);
+      green = sg * sa + green * (1 - sa);
+      blue = sb * sa + blue * (1 - sa);
+      alpha = sa + alpha * (1 - sa);
     }
-    const sa = sa8 / 255;
-    red = sr * sa + red * (1 - sa);
-    green = sg * sa + green * (1 - sa);
-    blue = sb * sa + blue * (1 - sa);
-    alpha = sa + alpha * (1 - sa);
   }
   if (alpha === 0) {
     return null;
