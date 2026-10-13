@@ -6,6 +6,7 @@ import type { OpenProject } from '../project/types';
 import type { AnimationDocument } from '@shared/types/animation';
 import type { AssetImportResult, ProjectAsset } from '@shared/types/assets';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from '@shared/types/project';
+import type { SceneCollection } from '@shared/types/scenes';
 
 /**
  * Application-level project API used by IPC handlers (and, later, by other
@@ -56,44 +57,54 @@ export class ProjectApplication {
     }
   }
 
-  /** Stored animation of the open project, or `null` when nothing was saved yet. */
-  async loadAnimation(): Promise<AnimationDocument | null> {
-    try {
-      return await this.projects.loadAnimation();
-    } catch (error) {
-      this.logger.warn('Animation load failed', describeError(error));
-      throw error;
-    }
+  /** Stored animation of a scene, or `null` when nothing was saved in it yet. */
+  loadAnimation(sceneId: string): Promise<AnimationDocument | null> {
+    return this.logFailure('Animation load', () => this.projects.scenes.loadAnimation(sceneId));
   }
 
-  async saveAnimation(document: unknown): Promise<void> {
-    try {
-      await this.projects.saveAnimation(document);
-      this.logger.info('Animation saved');
-    } catch (error) {
-      this.logger.warn('Animation save failed', describeError(error));
-      throw error;
-    }
+  async saveAnimation(sceneId: string, document: unknown): Promise<void> {
+    await this.logFailure('Animation save', () => this.projects.scenes.saveAnimation(sceneId, document));
+    this.logger.info('Animation saved');
+  }
+
+  listScenes(): Promise<SceneCollection> {
+    return this.logFailure('Scene list', () => this.projects.scenes.listScenes());
+  }
+
+  createScene(name: string): Promise<SceneCollection> {
+    return this.logFailure('Scene creation', () => this.projects.scenes.createScene(name));
+  }
+
+  renameScene(sceneId: string, name: string): Promise<SceneCollection> {
+    return this.logFailure('Scene rename', () => this.projects.scenes.renameScene(sceneId, name));
+  }
+
+  deleteScene(sceneId: string): Promise<SceneCollection> {
+    return this.logFailure('Scene deletion', () => this.projects.scenes.deleteScene(sceneId));
+  }
+
+  selectScene(sceneId: string): Promise<SceneCollection> {
+    return this.logFailure('Scene selection', () => this.projects.scenes.selectScene(sceneId));
   }
 
   listAssets(): Promise<ProjectAsset[]> {
-    return this.runAssetOperation('Asset list', () => this.assets.listAssets());
+    return this.logFailure('Asset list', () => this.assets.listAssets());
   }
 
   readAssetImage(assetId: string): Promise<string> {
-    return this.runAssetOperation('Asset image read', () => this.assets.readAssetImage(assetId));
+    return this.logFailure('Asset image read', () => this.assets.readAssetImage(assetId));
   }
 
   importAssets(sourcePaths: readonly string[]): Promise<AssetImportResult> {
-    return this.runAssetOperation('Asset import', () => this.assets.importAssets(sourcePaths));
+    return this.logFailure('Asset import', () => this.assets.importAssets(sourcePaths));
   }
 
   renameAsset(assetId: string, newName: string): Promise<ProjectAsset> {
-    return this.runAssetOperation('Asset rename', () => this.assets.renameAsset(assetId, newName));
+    return this.logFailure('Asset rename', () => this.assets.renameAsset(assetId, newName));
   }
 
   deleteAsset(assetId: string): Promise<void> {
-    return this.runAssetOperation('Asset delete', () => this.assets.deleteAsset(assetId));
+    return this.logFailure('Asset delete', () => this.assets.deleteAsset(assetId));
   }
 
   getRecentProjects(): Promise<RecentProject[]> {
@@ -105,7 +116,7 @@ export class ProjectApplication {
     this.logger.info('Recent project removed', { projectId });
   }
 
-  private async runAssetOperation<T>(label: string, operation: () => Promise<T>): Promise<T> {
+  private async logFailure<T>(label: string, operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();
     } catch (error) {

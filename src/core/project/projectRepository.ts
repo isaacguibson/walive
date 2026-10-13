@@ -2,10 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { ANIMATION_LAYERS_DIRECTORY, ANIMATION_MANIFEST_FILE } from './animationFormat';
-import { CACHE_DIRECTORY, PROJECT_FILE_NAME, REQUIRED_PROJECT_DIRECTORIES } from './constants';
+import {
+  CACHE_DIRECTORY,
+  PROJECT_FILE_NAME,
+  REQUIRED_PROJECT_DIRECTORIES,
+  SCENE_REGISTRY_FILE,
+  SCENES_DIRECTORY
+} from './constants';
 import { AppError, isNodeError, isPermissionError } from '../errors';
 
 export type DirectoryState = 'missing' | 'empty' | 'not-empty' | 'not-a-directory';
+
+const damagedAnimation = (): AppError =>
+  new AppError('INVALID_ANIMATION_DATA', 'The stored animation is damaged and could not be read.');
 
 /**
  * Filesystem access for projects. This is the only place in the project layer
@@ -77,31 +86,40 @@ export class ProjectRepository {
     await this.writeFileAtomic(path.join(projectPath, PROJECT_FILE_NAME), `${JSON.stringify(content, null, 2)}\n`);
   }
 
-  /** Reads the animation manifest. `null` when the project has no stored animation yet. */
-  async readAnimationManifest(projectPath: string): Promise<unknown | null> {
-    const file = path.join(projectPath, ...this.drawingsDirectory(), ANIMATION_MANIFEST_FILE);
-    let text: string;
-    try {
-      text = await fs.readFile(file, 'utf8');
-    } catch (error) {
-      if (isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
-        return null;
-      }
-      throw this.toReadError(error);
-    }
-    try {
-      return JSON.parse(text) as unknown;
-    } catch (error) {
-      throw new AppError('INVALID_ANIMATION_DATA', 'The stored animation is damaged and could not be read.', {
-        cause: error
-      });
-    }
+  /** Reads the scene registry. `null` when the project has none yet. */
+  readSceneRegistry(projectPath: string): Promise<unknown | null> {
+    return this.readOptionalJson(this.sceneRegistryFile(projectPath), () =>
+      new AppError('INVALID_SCENE_DATA', 'The scene list is damaged and could not be read.')
+    );
   }
 
-  async writeAnimationManifest(projectPath: string, content: object): Promise<void> {
-    const directory = path.join(projectPath, ...this.drawingsDirectory());
-    await this.ensureDirectory(directory);
-    await this.writeFileAtomic(path.join(directory, ANIMATION_MANIFEST_FILE), `${JSON.stringify(content, null, 2)}\n`);
+  async writeSceneRegistry(projectPath: string, content: object): Promise<void> {
+    await this.writeJson(this.sceneRegistryFile(projectPath), content);
+  }
+
+  /** Reads the animation manifest of a scene. `null` when the scene has no stored animation yet. */
+  readAnimationManifest(projectPath: string, sceneId: string): Promise<unknown | null> {
+    return this.readOptionalJson(this.sceneManifestFile(projectPath, sceneId), damagedAnimation);
+  }
+
+  async writeAnimationManifest(projectPath: string, sceneId: string, content: object): Promise<void> {
+    await this.writeJson(this.sceneManifestFile(projectPath, sceneId), content);
+  }
+
+  /** Removes the files of a scene, keeping the shared layer files. Failures are ignored: orphans are harmless. */
+  async removeSceneFiles(projectPath: string, sceneId: string): Promise<void> {
+    await fs
+      .rm(path.join(projectPath, SCENES_DIRECTORY, sceneId), { recursive: true, force: true })
+      .catch(() => undefined);
+  }
+
+  /** The single animation older projects kept in `drawings/`, before scenes existed. */
+  readLegacyAnimationManifest(projectPath: string): Promise<unknown | null> {
+    return this.readOptionalJson(this.legacyManifestFile(projectPath), damagedAnimation);
+  }
+
+  async removeLegacyAnimationManifest(projectPath: string): Promise<void> {
+    await fs.rm(this.legacyManifestFile(projectPath), { force: true }).catch(() => undefined);
   }
 
   async readLayerFile(projectPath: string, fileName: string): Promise<Buffer> {
@@ -177,6 +195,41 @@ export class ProjectRepository {
       }
       throw new AppError('WRITE_FAILED', 'The project could not be saved.', { cause: error });
     }
+  }
+
+  private async readOptionalJson(file: string, damaged: () => AppError): Promise<unknown | null> {
+    let text: string;
+    try {
+      text = await fs.readFile(file, 'utf8');
+    } catch (error) {
+      if (isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+        return null;
+      }
+      throw this.toReadError(error);
+    }
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw damaged();
+    }
+  }
+
+  private async writeJson(file: string, content: object): Promise<void> {
+    await this.ensureDirectory(path.dirname(file));
+    await this.writeFileAtomic(file, `${JSON.stringify(content, null, 2)}\n`);
+  }
+
+  private sceneRegistryFile(projectPath: string): string {
+    return path.join(projectPath, SCENES_DIRECTORY, SCENE_REGISTRY_FILE);
+  }
+
+  /** `sceneId` must be a validated identifier: it becomes a path segment. */
+  private sceneManifestFile(projectPath: string, sceneId: string): string {
+    return path.join(projectPath, SCENES_DIRECTORY, sceneId, ANIMATION_MANIFEST_FILE);
+  }
+
+  private legacyManifestFile(projectPath: string): string {
+    return path.join(projectPath, ...this.drawingsDirectory(), ANIMATION_MANIFEST_FILE);
   }
 
   private drawingsDirectory(): readonly string[] {

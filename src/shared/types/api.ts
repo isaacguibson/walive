@@ -2,6 +2,7 @@ import type { IpcResult } from './errors';
 import type { AnimationDocument } from './animation';
 import type { AssetImportResult, ProjectAsset } from './assets';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from './project';
+import type { SceneCollection } from './scenes';
 
 /**
  * API exposed to the renderer by the preload script (`window.api.project`).
@@ -22,13 +23,28 @@ export interface ProjectAPI {
 }
 
 /**
- * Persistence of the animation content (frames, layers, drawings) of the open
- * project. The renderer never touches files; Project Management owns storage.
+ * Persistence of the animation content (frames, layers, drawings) of each
+ * scene of the open project. The renderer never touches files; Project
+ * Management owns storage.
  */
 export interface AnimationAPI {
-  /** Resolves to `null` when the project has no stored animation yet. */
-  loadAnimation(): Promise<IpcResult<AnimationDocument | null>>;
-  saveAnimation(document: AnimationDocument): Promise<IpcResult<void>>;
+  /** Resolves to `null` when the scene has no stored animation yet. */
+  loadAnimation(sceneId: string): Promise<IpcResult<AnimationDocument | null>>;
+  saveAnimation(sceneId: string, document: AnimationDocument): Promise<IpcResult<void>>;
+}
+
+/**
+ * Scenes of the open project (HU_00011). Every operation resolves to the
+ * updated collection, so the renderer never has to guess the outcome.
+ */
+export interface ScenesAPI {
+  listScenes(): Promise<IpcResult<SceneCollection>>;
+  /** Creates a scene and makes it the active one. */
+  createScene(name: string): Promise<IpcResult<SceneCollection>>;
+  renameScene(sceneId: string, name: string): Promise<IpcResult<SceneCollection>>;
+  /** Deletes a scene; when it was active, the main process picks the next active one. */
+  deleteScene(sceneId: string): Promise<IpcResult<SceneCollection>>;
+  selectScene(sceneId: string): Promise<IpcResult<SceneCollection>>;
 }
 
 /**
@@ -48,5 +64,6 @@ export interface AssetsAPI {
 export interface AppAPI {
   project: ProjectAPI;
   animation: AnimationAPI;
+  scenes: ScenesAPI;
   assets: AssetsAPI;
 }

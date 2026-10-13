@@ -10,11 +10,11 @@ vi.mock('electron', () => ({
 
 type Api = Record<string, (...args: unknown[]) => Promise<unknown>>;
 
-async function loadFullApi(): Promise<{ project: Api; animation: Api; assets: Api }> {
+async function loadFullApi(): Promise<{ project: Api; animation: Api; scenes: Api; assets: Api }> {
   vi.resetModules();
   exposeInMainWorld.mockClear();
   await import('../../src/preload/preload');
-  const [name, api] = exposeInMainWorld.mock.calls[0] as [string, { project: Api; animation: Api; assets: Api }];
+  const [name, api] = exposeInMainWorld.mock.calls[0] as [string, { project: Api; animation: Api; scenes: Api; assets: Api }];
   expect(name).toBe('api');
   return api;
 }
@@ -29,11 +29,12 @@ describe('preload API', () => {
     invoke.mockResolvedValue({ ok: true, value: undefined });
   });
 
-  it('exposes a single "api" object with only the project, animation and asset operations', async () => {
-    const { project, animation, assets } = await loadFullApi();
+  it('exposes a single "api" object with only the project, animation, scene and asset operations', async () => {
+    const { project, animation, scenes, assets } = await loadFullApi();
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [, api] = exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
-    expect(Object.keys(api).sort()).toEqual(['animation', 'assets', 'project']);
+    expect(Object.keys(api).sort()).toEqual(['animation', 'assets', 'project', 'scenes']);
+    expect(Object.keys(scenes).sort()).toEqual(['createScene', 'deleteScene', 'listScenes', 'renameScene', 'selectScene']);
     expect(Object.keys(assets).sort()).toEqual(['deleteAsset', 'importAssets', 'listAssets', 'readAssetImage', 'renameAsset']);
     expect(Object.keys(animation).sort()).toEqual(['loadAnimation', 'saveAnimation']);
     expect(Object.keys(project).sort()).toEqual([
@@ -71,11 +72,27 @@ describe('preload API', () => {
   it('routes animation operations through their explicit IPC channels', async () => {
     const { animation } = await loadFullApi();
     const document = { width: 1, height: 1, frames: [] };
-    await animation['loadAnimation']?.();
-    await animation['saveAnimation']?.(document);
+    await animation['loadAnimation']?.('scene-1');
+    await animation['saveAnimation']?.('scene-1', document);
     expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.loadAnimation, undefined],
-      [IPC_CHANNELS.saveAnimation, { document }]
+      [IPC_CHANNELS.loadAnimation, { sceneId: 'scene-1' }],
+      [IPC_CHANNELS.saveAnimation, { sceneId: 'scene-1', document }]
+    ]);
+  });
+
+  it('routes scene operations through their explicit IPC channels', async () => {
+    const { scenes } = await loadFullApi();
+    await scenes['listScenes']?.();
+    await scenes['createScene']?.('Intro');
+    await scenes['renameScene']?.('scene-1', 'Opening');
+    await scenes['deleteScene']?.('scene-1');
+    await scenes['selectScene']?.('scene-2');
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.listScenes, undefined],
+      [IPC_CHANNELS.createScene, { name: 'Intro' }],
+      [IPC_CHANNELS.renameScene, { sceneId: 'scene-1', name: 'Opening' }],
+      [IPC_CHANNELS.deleteScene, { sceneId: 'scene-1' }],
+      [IPC_CHANNELS.selectScene, { sceneId: 'scene-2' }]
     ]);
   });
 

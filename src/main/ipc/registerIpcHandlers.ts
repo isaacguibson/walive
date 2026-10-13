@@ -107,11 +107,36 @@ export function registerIpcHandlers({
 
   register(IPC_CHANNELS.selectDirectory, () => directoryPicker.pickDirectory());
 
-  register(IPC_CHANNELS.loadAnimation, () => application.loadAnimation());
+  register(IPC_CHANNELS.loadAnimation, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'animation:load'>>;
+    return application.loadAnimation(requireString(request.sceneId));
+  });
 
   register(IPC_CHANNELS.saveAnimation, async (payload) => {
     const request = asRecord(payload) as Partial<IpcRequest<'animation:save'>>;
-    return application.saveAnimation(request.document);
+    return application.saveAnimation(requireString(request.sceneId), request.document);
+  });
+
+  register(IPC_CHANNELS.listScenes, () => application.listScenes());
+
+  register(IPC_CHANNELS.createScene, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'scenes:create'>>;
+    return application.createScene(requireString(request.name));
+  });
+
+  register(IPC_CHANNELS.renameScene, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'scenes:rename'>>;
+    return application.renameScene(requireString(request.sceneId), requireString(request.name));
+  });
+
+  register(IPC_CHANNELS.deleteScene, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'scenes:delete'>>;
+    return application.deleteScene(requireString(request.sceneId));
+  });
+
+  register(IPC_CHANNELS.selectScene, async (payload) => {
+    const request = asRecord(payload) as Partial<IpcRequest<'scenes:select'>>;
+    return application.selectScene(requireString(request.sceneId));
   });
 
   register(IPC_CHANNELS.listAssets, () => application.listAssets());

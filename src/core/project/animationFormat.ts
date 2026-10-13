@@ -9,7 +9,7 @@ import { parseCurves } from './curveFormat';
 const deflateAsync = promisify(deflate);
 const inflateAsync = promisify(inflate);
 
-/** Manifest of the stored animation, inside `drawings/`. */
+/** Manifest of a stored animation (one per scene; older projects kept a single one in `drawings/`). */
 export const ANIMATION_MANIFEST_FILE = 'animation.json';
 
 /** Directory (inside `drawings/`) holding the compressed pixel data of layers. */
@@ -18,7 +18,7 @@ export const ANIMATION_LAYERS_DIRECTORY = 'layers';
 export const ANIMATION_FORMAT_VERSION = 1;
 
 const LAYER_FILE_PATTERN = /^[a-f0-9]{64}\.rgba\.z$/;
-const ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+export const ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** Maximum canvas edge/area accepted by the persistence layer (same limits as the editor). */
 const MAX_DIMENSION = 16_384;

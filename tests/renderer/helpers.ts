@@ -1,8 +1,9 @@
 import { vi } from 'vitest';
-import type { AnimationAPI, AssetsAPI, ProjectAPI } from '@shared/types/api';
+import type { AnimationAPI, AssetsAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectAsset } from '@shared/types/assets';
 import type { IpcResult } from '@shared/types/errors';
 import type { ProjectMetadata, RecentProject } from '@shared/types/project';
+import type { SceneCollection, SceneInfo } from '@shared/types/scenes';
 
 export function ok<T>(value: T): IpcResult<T> {
   return { ok: true, value };
@@ -92,4 +93,60 @@ export function createMockAnimationApi(overrides: Partial<AnimationAPI> = {}): M
     (api as Record<string, unknown>)[key] = vi.fn(impl as (...args: never[]) => unknown);
   }
   return api;
+}
+
+export type MockScenesApi = { [K in keyof ScenesAPI]: ReturnType<typeof vi.fn<ScenesAPI[K]>> };
+
+/** A stateful scene API: the project starts with the given scenes and the first one is active. */
+export function createMockScenesApi(names: string[] = ['Scene 1']): MockScenesApi {
+  let counter = 0;
+  const makeScene = (name: string): SceneInfo => {
+    counter += 1;
+    return { id: `scene-${counter}`, name, createdAt: '2026-10-06T12:00:00.000Z', updatedAt: '2026-10-06T12:00:00.000Z' };
+  };
+  let scenes = names.map(makeScene);
+  let activeSceneId = scenes[0]?.id ?? '';
+  const collection = (): SceneCollection => ({ scenes: [...scenes], activeSceneId });
+  const validate = (name: string, ignoredId?: string): string | null => {
+    const trimmed = name.trim();
+    if (trimmed === '') {
+      return 'Enter a scene name.';
+    }
+    const duplicate = scenes.some((scene) => scene.id !== ignoredId && scene.name.toLowerCase() === trimmed.toLowerCase());
+    return duplicate ? 'A scene with this name already exists.' : null;
+  };
+
+  return {
+    listScenes: vi.fn<ScenesAPI['listScenes']>(async () => ok(collection())),
+    createScene: vi.fn<ScenesAPI['createScene']>(async (name) => {
+      const error = validate(name);
+      if (error !== null) {
+        return fail(error);
+      }
+      const scene = makeScene(name.trim());
+      scenes = [...scenes, scene];
+      activeSceneId = scene.id;
+      return ok(collection());
+    }),
+    renameScene: vi.fn<ScenesAPI['renameScene']>(async (sceneId, name) => {
+      const error = validate(name, sceneId);
+      if (error !== null) {
+        return fail(error);
+      }
+      scenes = scenes.map((scene) => (scene.id === sceneId ? { ...scene, name: name.trim() } : scene));
+      return ok(collection());
+    }),
+    deleteScene: vi.fn<ScenesAPI['deleteScene']>(async (sceneId) => {
+      const index = scenes.findIndex((scene) => scene.id === sceneId);
+      scenes = scenes.filter((scene) => scene.id !== sceneId);
+      if (activeSceneId === sceneId) {
+        activeSceneId = (scenes[index] ?? scenes[index - 1])?.id ?? '';
+      }
+      return ok(collection());
+    }),
+    selectScene: vi.fn<ScenesAPI['selectScene']>(async (sceneId) => {
+      activeSceneId = sceneId;
+      return ok(collection());
+    })
+  };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { EditorSession } from '@editor/editorSession';
 import type { AssetsAPI } from '@shared/types/api';
 import { matchShortcut } from '@editor/shortcuts/shortcuts';
@@ -25,6 +25,8 @@ interface EditorProps {
   session: EditorSession;
   assetsApi: AssetsAPI;
   projectName: string;
+  /** Scene controls shown in the header, before the project actions. */
+  sceneSelector: ReactNode;
   saving: boolean;
   closing: boolean;
   onSave(): void;
@@ -53,7 +55,7 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 /** The four editor areas plus the project header. Owns shortcuts and fullscreen, never persistence. */
-export function Editor({ session, assetsApi, projectName, saving, closing, onSave, onClose }: EditorProps) {
+export function Editor({ session, assetsApi, projectName, sceneSelector, saving, closing, onSave, onClose }: EditorProps) {
   const snapshot = useEditorSnapshot(session);
   const { state } = snapshot;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -189,6 +191,7 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
             {saving ? 'Saving…' : snapshot.isDirty ? 'Unsaved changes' : 'All changes saved'}
           </span>
           <div className="editor-header-actions">
+            {sceneSelector}
             <IconButton
               icon="save"
               label="Save Project"

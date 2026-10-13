@@ -10,12 +10,14 @@ import {
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
+  createMockScenesApi,
   fail,
   metadata,
   ok,
   type MockAnimationApi,
   type MockAssetsApi,
-  type MockProjectApi
+  type MockProjectApi,
+  type MockScenesApi
 } from './helpers';
 
 const SIZE = 64;
@@ -26,6 +28,7 @@ interface Options {
   api?: MockProjectApi;
   animationApi?: MockAnimationApi;
   assetsApi?: MockAssetsApi;
+  scenesApi?: MockScenesApi;
 }
 
 function renderEditor(options: Options = {}) {
@@ -33,11 +36,19 @@ function renderEditor(options: Options = {}) {
   const api = options.api ?? createMockApi();
   const animationApi = options.animationApi ?? createMockAnimationApi();
   const assetsApi = options.assetsApi ?? createMockAssetsApi();
+  const scenesApi = options.scenesApi ?? createMockScenesApi();
   const onClosed = vi.fn();
   render(
-    <EditorPage api={api} animationApi={animationApi} assetsApi={assetsApi} project={PROJECT} onClosed={onClosed} />
+    <EditorPage
+      api={api}
+      animationApi={animationApi}
+      assetsApi={assetsApi}
+      scenesApi={scenesApi}
+      project={PROJECT}
+      onClosed={onClosed}
+    />
   );
-  return { user, api, animationApi, assetsApi, onClosed };
+  return { user, api, animationApi, assetsApi, scenesApi, onClosed };
 }
 
 async function renderReadyEditor(options: Options = {}) {
@@ -74,7 +85,7 @@ function layerNames(): (string | undefined)[] {
 }
 
 function savedDocument(animationApi: MockAnimationApi, call = 0): AnimationDocument {
-  const document = animationApi.saveAnimation.mock.calls[call]?.[0];
+  const document = animationApi.saveAnimation.mock.calls[call]?.[1];
   if (document === undefined) {
     throw new Error('Nothing was saved');
   }
@@ -94,6 +105,7 @@ describe('loading the editor', () => {
     renderEditor({ animationApi });
     expect(screen.getByText('Loading project…')).toBeInTheDocument();
 
+    await waitFor(() => expect(animationApi.loadAnimation).toHaveBeenCalled());
     finish();
     expect(await screen.findByRole('button', { name: 'Save Project' })).toBeInTheDocument();
     expect(frameButtons()).toHaveLength(1);

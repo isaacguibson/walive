@@ -1431,3 +1431,34 @@ label[for='keep-aspect-ratio'] {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Scene selector */
+.scene-selector {
+  position: relative;
+}
+
+.scene-selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+}
+
+.scene-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 240px;
+}
+
+.scene-menu-item[aria-checked='true'] {
+  color: var(--accent-hover);
+  font-weight: 600;
+}

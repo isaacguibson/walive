@@ -1,21 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { DEFAULT_PROJECT_CANVAS, PROJECT_FILE_NAME, PROJECT_FORMAT_VERSION } from './constants';
-import {
-  ANIMATION_FORMAT_VERSION,
-  compressPixels,
-  decompressPixels,
-  layerFileName,
-  parseAnimationDocument,
-  parseAnimationManifest,
-  type AnimationManifest
-} from './animationFormat';
 import { normalizeProjectCanvas, parseProjectMetadata } from './metadata';
 import { normalizeProjectName, toDirectoryName } from './names';
 import { ProjectRepository } from './projectRepository';
+import { SceneService } from './sceneService';
 import type { OpenProject, ProjectValidationResult } from './types';
 import { AppError } from '../errors';
-import type { AnimationDocument } from '@shared/types/animation';
 import type { ProjectCanvas, ProjectMetadata } from '@shared/types/project';
 
 export interface ProjectServiceOptions {
@@ -29,6 +20,8 @@ export interface ProjectServiceOptions {
  * the UI, tests, and future AI/MCP integrations read or change projects.
  */
 export class ProjectService {
+  /** Scenes of the open project and the animation stored in each one. */
+  readonly scenes: SceneService;
   private readonly repository: ProjectRepository;
   private readonly now: () => Date;
   private readonly generateId: () => string;
@@ -38,6 +31,11 @@ export class ProjectService {
     this.repository = options.repository ?? new ProjectRepository();
     this.now = options.now ?? (() => new Date());
     this.generateId = options.generateId ?? randomUUID;
+    this.scenes = new SceneService({
+      repository: this.repository,
+      requireProject: () => this.requireCurrent(),
+      now: this.now
+    });
   }
 
   /** Creates a new project directory and opens it. */
@@ -171,103 +169,6 @@ export class ProjectService {
   /** Changes the project name only; the directory is left untouched. */
   renameProject(name: string): Promise<ProjectMetadata> {
     return this.saveProjectMetadata({ name });
-  }
-
-  /**
-   * Reads the stored animation (frames, layers and drawings) of the open
-   * project. Resolves to `null` when nothing has been saved yet.
-   */
-  async loadAnimation(): Promise<AnimationDocument | null> {
-    const { path: projectPath, metadata } = this.requireCurrent();
-    const raw = await this.repository.readAnimationManifest(projectPath);
-    if (raw === null) {
-      return null;
-    }
-    const manifest = parseAnimationManifest(raw);
-    if (manifest.width !== metadata.canvas.width || manifest.height !== metadata.canvas.height) {
-      throw new AppError('INVALID_ANIMATION_DATA', 'The stored drawings do not match the canvas size of this project.');
-    }
-    const length = manifest.width * manifest.height * 4;
-    const cache = new Map<string, Uint8Array>();
-    const frames: AnimationDocument['frames'] = [];
-    for (const frame of manifest.frames) {
-      const layers: AnimationDocument['frames'][number]['layers'] = [];
-      for (const layer of frame.layers) {
-        let pixels: Uint8Array | null = null;
-        if (layer.file !== null) {
-          let cached = cache.get(layer.file);
-          if (cached === undefined) {
-            cached = await decompressPixels(await this.repository.readLayerFile(projectPath, layer.file), length);
-            cache.set(layer.file, cached);
-          }
-          // Identical layers share one file; give each layer its own buffer.
-          pixels = new Uint8Array(cached);
-        }
-        layers.push({
-          id: layer.id,
-          name: layer.name,
-          visible: layer.visible,
-          pixels,
-          ...(layer.curves !== undefined ? { curves: layer.curves } : {})
-        });
-      }
-      frames.push({ id: frame.id, layers });
-    }
-    return {
-      width: manifest.width,
-      height: manifest.height,
-      frames,
-      ...(manifest.manualReferenceFrameId !== undefined
-        ? { manualReferenceFrameId: manifest.manualReferenceFrameId }
-        : {})
-    };
-  }
-
-  /**
-   * Persists the animation of the open project. Pixel files are written first
-   * and the manifest last (atomically), so an interrupted save leaves the
-   * previous animation intact.
-   */
-  async saveAnimation(input: unknown): Promise<void> {
-    const { path: projectPath, metadata } = this.requireCurrent();
-    const document = parseAnimationDocument(input);
-    if (document.width !== metadata.canvas.width || document.height !== metadata.canvas.height) {
-      throw new AppError('INVALID_ANIMATION_DATA', 'The drawings do not match the canvas size of this project.');
-    }
-
-    const keep = new Set<string>();
-    const manifest: AnimationManifest = {
-      formatVersion: ANIMATION_FORMAT_VERSION,
-      width: document.width,
-      height: document.height,
-      ...(document.manualReferenceFrameId !== undefined
-        ? { manualReferenceFrameId: document.manualReferenceFrameId }
-        : {}),
-      frames: []
-    };
-    for (const frame of document.frames) {
-      const layers: AnimationManifest['frames'][number]['layers'] = [];
-      for (const layer of frame.layers) {
-        let file: string | null = null;
-        if (layer.pixels !== null && layer.pixels.some((byte) => byte !== 0)) {
-          file = layerFileName(layer.pixels);
-          if (!keep.has(file)) {
-            await this.repository.writeLayerFile(projectPath, file, await compressPixels(layer.pixels));
-            keep.add(file);
-          }
-        }
-        layers.push({
-          id: layer.id,
-          name: layer.name,
-          visible: layer.visible,
-          file,
-          ...(layer.curves !== undefined && layer.curves.length > 0 ? { curves: [...layer.curves] } : {})
-        });
-      }
-      manifest.frames.push({ id: frame.id, layers });
-    }
-    await this.repository.writeAnimationManifest(projectPath, manifest);
-    await this.repository.removeLayerFilesExcept(projectPath, keep);
   }
 
   private requireCurrent(): OpenProject {

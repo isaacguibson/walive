@@ -31,15 +31,21 @@ function withCurves(curves: unknown): unknown {
   return { ...base, frames: [{ ...first, layers: [{ ...layer, curves }, ...layers] }, ...rest] };
 }
 
-async function openSmallProject(): Promise<{ service: ProjectService; projectPath: string }> {
-  const service = new ProjectService();
+async function openSmallProject() {
+  const projects = new ProjectService();
   const location = await makeTempDir();
-  const { path: projectPath } = await service.createProject('Persist', location, {
+  const { path: projectPath } = await projects.createProject('Persist', location, {
     width: WIDTH,
     height: HEIGHT,
     keepAspectRatio: false
   });
-  return { service, projectPath };
+  const { activeSceneId } = await projects.scenes.listScenes();
+  // Scene-bound shortcut: these tests exercise one scene.
+  const service = {
+    loadAnimation: () => projects.scenes.loadAnimation(activeSceneId),
+    saveAnimation: (input: unknown) => projects.scenes.saveAnimation(activeSceneId, input)
+  };
+  return { service, projectPath, manifestPath: path.join(projectPath, 'scenes', activeSceneId, 'animation.json') };
 }
 
 function pixels(fill: number): Uint8Array {
@@ -104,21 +110,20 @@ describe('animation persistence', () => {
   });
 
   it('round-trips a manual onion reference and accepts older manifests without one', async () => {
-    const { service, projectPath } = await openSmallProject();
+    const { service, manifestPath } = await openSmallProject();
     await service.saveAnimation(document({ manualReferenceFrameId: 'frame-1' }));
 
     expect((await service.loadAnimation())?.manualReferenceFrameId).toBe('frame-1');
-    const manifestPath = path.join(projectPath, 'drawings', 'animation.json');
     const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Record<string, unknown>;
     delete manifest.manualReferenceFrameId;
     await fs.writeFile(manifestPath, JSON.stringify(manifest));
     expect((await service.loadAnimation())?.manualReferenceFrameId).toBeUndefined();
   });
 
-  it('stores the data inside the project drawings directory only', async () => {
-    const { service, projectPath } = await openSmallProject();
+  it('stores the data inside the project scenes and drawings directories only', async () => {
+    const { service, projectPath, manifestPath } = await openSmallProject();
     await service.saveAnimation(document());
-    expect(await fs.stat(path.join(projectPath, 'drawings', 'animation.json'))).toBeTruthy();
+    expect(await fs.stat(manifestPath)).toBeTruthy();
     // Identical layers share a single content-addressed file; blank layers have none.
     expect(await layerFiles(projectPath)).toHaveLength(1);
   });
@@ -182,9 +187,9 @@ describe('animation persistence', () => {
   });
 
   it('fails clearly when the stored manifest is corrupted', async () => {
-    const { service, projectPath } = await openSmallProject();
+    const { service, projectPath, manifestPath } = await openSmallProject();
     await service.saveAnimation(document());
-    await fs.writeFile(path.join(projectPath, 'drawings', 'animation.json'), '{ not json');
+    await fs.writeFile(manifestPath, '{ not json');
     expect((await rejectionOf(service.loadAnimation())).code).toBe('INVALID_ANIMATION_DATA');
   });
 
@@ -197,9 +202,9 @@ describe('animation persistence', () => {
   });
 
   it('requires an open project', async () => {
-    const service = new ProjectService();
-    expect((await rejectionOf(service.loadAnimation())).code).toBe('NO_PROJECT_OPEN');
-    expect((await rejectionOf(service.saveAnimation(document()))).code).toBe('NO_PROJECT_OPEN');
+    const service = new ProjectService().scenes;
+    expect((await rejectionOf(service.loadAnimation('x'))).code).toBe('NO_PROJECT_OPEN');
+    expect((await rejectionOf(service.saveAnimation('x', document()))).code).toBe('NO_PROJECT_OPEN');
   });
 });
 
@@ -212,9 +217,8 @@ describe('curve persistence', () => {
   });
 
   it('writes no curves key for layers without curves and loads older manifests', async () => {
-    const { service, projectPath } = await openSmallProject();
+    const { service, manifestPath } = await openSmallProject();
     await service.saveAnimation(withCurves([]));
-    const manifestPath = path.join(projectPath, 'drawings', 'animation.json');
     expect(await fs.readFile(manifestPath, 'utf8')).not.toContain('curves');
     expect((await service.loadAnimation())?.frames[0]?.layers[0]?.curves).toBeUndefined();
   });
@@ -253,9 +257,8 @@ describe('curve persistence', () => {
   });
 
   it('fails clearly when stored curves are damaged', async () => {
-    const { service, projectPath } = await openSmallProject();
+    const { service, manifestPath } = await openSmallProject();
     await service.saveAnimation(withCurves([curve()]));
-    const manifestPath = path.join(projectPath, 'drawings', 'animation.json');
     const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as { frames: { layers: { curves: unknown }[] }[] };
     (manifest.frames[0] as { layers: { curves: unknown }[] }).layers[0]!.curves = [{ id: 'x' }];
     await fs.writeFile(manifestPath, JSON.stringify(manifest));

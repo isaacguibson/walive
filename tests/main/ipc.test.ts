@@ -8,6 +8,7 @@ import { silentLogger } from '@core/logger';
 import { ProjectService } from '@core/project/projectService';
 import { ALLOWED_IPC_CHANNELS, IPC_CHANNELS } from '@shared/ipc/channels';
 import type { IpcResult } from '@shared/types/errors';
+import type { SceneCollection } from '@shared/types/scenes';
 import { registerIpcHandlers, type AssetFilePicker, type DirectoryPicker } from '../../src/main/ipc/registerIpcHandlers';
 import { makeTempDir } from '../helpers/tempDir';
 
@@ -43,6 +44,14 @@ async function setup(pickResult: string | null = null, pickedFiles: string[] = [
   return { root, handlers, invoke, pick, pickFiles, projects };
 }
 
+async function firstSceneId(invoke: <T>(channel: string, payload?: unknown) => Promise<IpcResult<T>>): Promise<string> {
+  const scenes = await invoke<SceneCollection>(IPC_CHANNELS.listScenes);
+  if (!scenes.ok) {
+    throw new Error('Scenes could not be listed');
+  }
+  return scenes.value.activeSceneId;
+}
+
 describe('IPC handlers', () => {
   it('registers exactly the explicitly defined channels', async () => {
     const { handlers } = await setup();
@@ -60,16 +69,22 @@ describe('IPC handlers', () => {
         'project:get-recent',
         'project:open',
         'project:remove-recent',
-        'project:select-directory'
+        'project:select-directory',
+        'scenes:create',
+        'scenes:delete',
+        'scenes:list',
+        'scenes:rename',
+        'scenes:select'
       ].sort()
     );
     expect([...handlers.keys()].sort()).toEqual([...ALLOWED_IPC_CHANNELS].sort());
   });
 
-  it('stores and loads the animation of the open project through IPC', async () => {
+  it('stores and loads the animation of a scene through IPC', async () => {
     const { root, invoke } = await setup();
     await invoke(IPC_CHANNELS.createProject, { name: 'Anim', location: root, canvas: { width: 2, height: 2, keepAspectRatio: false } });
-    expect(await invoke(IPC_CHANNELS.loadAnimation)).toEqual({ ok: true, value: null });
+    const sceneId = await firstSceneId(invoke);
+    expect(await invoke(IPC_CHANNELS.loadAnimation, { sceneId })).toEqual({ ok: true, value: null });
 
     const pixels = new Uint8Array(16).fill(255);
     const document = {
@@ -77,18 +92,49 @@ describe('IPC handlers', () => {
       height: 2,
       frames: [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, pixels }] }]
     };
-    expect(await invoke(IPC_CHANNELS.saveAnimation, { document })).toEqual({ ok: true, value: undefined });
-    const loaded = await invoke<typeof document>(IPC_CHANNELS.loadAnimation);
+    expect(await invoke(IPC_CHANNELS.saveAnimation, { sceneId, document })).toEqual({ ok: true, value: undefined });
+    const loaded = await invoke<typeof document>(IPC_CHANNELS.loadAnimation, { sceneId });
     expect(loaded.ok && Array.from(loaded.value.frames[0]?.layers[0]?.pixels ?? [])).toEqual(Array.from(pixels));
   });
 
   it('rejects invalid animation payloads and requests without an open project', async () => {
     const { root, invoke } = await setup();
-    expect(await invoke(IPC_CHANNELS.loadAnimation)).toMatchObject({ ok: false, error: { code: 'NO_PROJECT_OPEN' } });
+    expect(await invoke(IPC_CHANNELS.loadAnimation, { sceneId: 'x' })).toMatchObject({ ok: false, error: { code: 'NO_PROJECT_OPEN' } });
 
     await invoke(IPC_CHANNELS.createProject, { name: 'Anim', location: root, canvas: { width: 2, height: 2, keepAspectRatio: false } });
-    for (const payload of [undefined, {}, { document: 'x' }, { document: { width: 2, height: 2, frames: [] } }]) {
+    const sceneId = await firstSceneId(invoke);
+    const emptyDocument = { width: 2, height: 2, frames: [] };
+    for (const payload of [undefined, {}, { sceneId }, { sceneId, document: 'x' }, { sceneId, document: emptyDocument }]) {
       expect(await invoke(IPC_CHANNELS.saveAnimation, payload)).toMatchObject({ ok: false });
+    }
+    expect(await invoke(IPC_CHANNELS.loadAnimation, {})).toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } });
+    expect(await invoke(IPC_CHANNELS.loadAnimation, { sceneId: '../x' })).toMatchObject({ ok: false, error: { code: 'SCENE_NOT_FOUND' } });
+  });
+
+  it('manages scenes through IPC and rejects invalid scene requests', async () => {
+    const { root, invoke } = await setup();
+    expect(await invoke(IPC_CHANNELS.listScenes)).toMatchObject({ ok: false, error: { code: 'NO_PROJECT_OPEN' } });
+    await invoke(IPC_CHANNELS.createProject, { name: 'Scenes', location: root });
+
+    const created = await invoke<SceneCollection>(IPC_CHANNELS.createScene, { name: 'Intro' });
+    expect(created.ok && created.value.scenes.map((scene) => scene.name)).toEqual(['Scene 1', 'Intro']);
+    const [first, intro] = created.ok ? created.value.scenes : [];
+    expect(created.ok && created.value.activeSceneId).toBe(intro?.id);
+
+    expect(await invoke(IPC_CHANNELS.renameScene, { sceneId: intro?.id, name: 'Opening' })).toMatchObject({ ok: true });
+    expect(await invoke(IPC_CHANNELS.selectScene, { sceneId: first?.id })).toMatchObject({
+      ok: true,
+      value: { activeSceneId: first?.id }
+    });
+    expect(await invoke(IPC_CHANNELS.deleteScene, { sceneId: first?.id })).toMatchObject({
+      ok: true,
+      value: { activeSceneId: intro?.id }
+    });
+    expect(await invoke(IPC_CHANNELS.deleteScene, { sceneId: intro?.id })).toMatchObject({ ok: false, error: { code: 'LAST_SCENE' } });
+
+    for (const channel of [IPC_CHANNELS.createScene, IPC_CHANNELS.renameScene, IPC_CHANNELS.deleteScene, IPC_CHANNELS.selectScene]) {
+      expect(await invoke(channel, undefined)).toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } });
+      expect(await invoke(channel, { sceneId: 3, name: 3 })).toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } });
     }
   });
 

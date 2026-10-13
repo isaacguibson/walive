@@ -1,104 +1,45 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { framesFromAnimationDocument } from '@editor/animation/serialization';
-import { EditorSession } from '@editor/editorSession';
-import { EditorError } from '@editor/errors';
-import type { AnimationAPI, AssetsAPI, ProjectAPI } from '@shared/types/api';
+import { useState } from 'react';
+import type { AnimationAPI, AssetsAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectMetadata } from '@shared/types/project';
 import { ConfirmCloseDialog } from '../components/editor/ConfirmCloseDialog';
+import { ConfirmDeleteSceneDialog } from '../components/editor/ConfirmDeleteSceneDialog';
 import { Editor } from '../components/editor/Editor';
+import { SceneNameDialog } from '../components/editor/SceneNameDialog';
+import { SceneSelector } from '../components/editor/SceneSelector';
+import { UnsavedSceneDialog } from '../components/editor/UnsavedSceneDialog';
+import { useSceneWorkspace } from '../state/useSceneWorkspace';
 
 interface EditorPageProps {
   api: ProjectAPI;
   animationApi: AnimationAPI;
   assetsApi: AssetsAPI;
+  scenesApi: ScenesAPI;
   project: ProjectMetadata;
   onClosed(): void;
 }
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; session: EditorSession };
+/** What the user wanted to do when the unsaved-changes dialog interrupted them. */
+type PendingLeave = { kind: 'switch'; sceneId: string } | { kind: 'create' };
+
+type SceneDialog = { kind: 'create'; discardCurrent: boolean } | { kind: 'rename' } | { kind: 'delete' };
 
 /**
- * Loads the stored animation of the open project, shows the editor and
- * coordinates saving and closing through Project Management. The editor never
- * touches files itself.
+ * Loads the scenes of the open project, shows the editor of the active one and
+ * coordinates saving, scene management and closing. The editor never touches
+ * files itself.
  */
-export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: EditorPageProps) {
-  const [load, setLoad] = useState<LoadState>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
-  const [saving, setSaving] = useState(false);
+export function EditorPage({ api, animationApi, assetsApi, scenesApi, project, onClosed }: EditorPageProps) {
+  const workspace = useSceneWorkspace(project, animationApi, scenesApi);
+  const { state, saving, busy, save } = workspace;
   const [closing, setClosing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
-  const savingRef = useRef(false);
+  const [pendingLeave, setPendingLeave] = useState<PendingLeave | null>(null);
+  const [sceneDialog, setSceneDialog] = useState<SceneDialog | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoad({ status: 'loading' });
-    void (async () => {
-      const result = await animationApi.loadAnimation();
-      if (cancelled) {
-        return;
-      }
-      if (!result.ok) {
-        setLoad({ status: 'error', message: result.error.message });
-        return;
-      }
-      try {
-        const { width, height } = project.canvas;
-        const frames =
-          result.value === null ? undefined : framesFromAnimationDocument(result.value, width, height);
-        setLoad({
-          status: 'ready',
-          session: new EditorSession({
-            width,
-            height,
-            ...(frames !== undefined ? { frames } : {}),
-            ...(result.value !== null && result.value.manualReferenceFrameId !== undefined
-              ? { manualReferenceFrameId: result.value.manualReferenceFrameId }
-              : {})
-          })
-        });
-      } catch (error) {
-        setLoad({
-          status: 'error',
-          message: error instanceof EditorError ? error.message : 'The project drawings could not be opened.'
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [animationApi, project, attempt]);
+  const session = state.status === 'ready' ? state.session : null;
 
-  const session = load.status === 'ready' ? load.session : null;
-
-  /** Persists the current animation. Resolves to `true` when it was stored. */
-  const save = useCallback(async (): Promise<boolean> => {
-    if (session === null || savingRef.current) {
-      return false;
-    }
-    savingRef.current = true;
-    setSaving(true);
-    try {
-      const { document, token } = session.createSaveRequest();
-      const result = await animationApi.saveAnimation(document);
-      if (result.ok) {
-        session.markSaved(token);
-        session.clearError();
-        return true;
-      }
-      session.reportError(`Unable to save drawing data. ${result.error.message}`);
-      return false;
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
-  }, [animationApi, session]);
-
-  const closeProject = useCallback(async () => {
+  async function closeProject() {
     setClosing(true);
     setCloseError(null);
     session?.stop();
@@ -109,11 +50,15 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
       setCloseError(result.error.message);
       setClosing(false);
     }
-  }, [api, onClosed, session]);
+  }
+
+  function hasUnsavedChanges(): boolean {
+    return session !== null && session.getSnapshot().isDirty;
+  }
 
   function requestClose() {
-    if (session !== null && session.getSnapshot().isDirty) {
-      session.stop();
+    if (hasUnsavedChanges()) {
+      session?.stop();
       setConfirmClose(true);
       return;
     }
@@ -121,15 +66,56 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
   }
 
   async function saveAndClose() {
-    if (await save()) {
-      setConfirmClose(false);
+    const saved = await save();
+    setConfirmClose(false);
+    if (saved) {
       await closeProject();
-    } else {
-      setConfirmClose(false);
     }
   }
 
-  if (load.status === 'loading') {
+  async function switchScene(sceneId: string, discardCurrent: boolean) {
+    const error = await workspace.selectScene(sceneId, discardCurrent);
+    if (error !== null) {
+      session?.reportError(error);
+    }
+  }
+
+  function resolveLeave(leave: PendingLeave, discardCurrent: boolean) {
+    if (leave.kind === 'switch') {
+      void switchScene(leave.sceneId, discardCurrent);
+    } else {
+      setSceneDialog({ kind: 'create', discardCurrent });
+    }
+  }
+
+  /** Leaving a scene with unsaved changes first asks what to do with them. */
+  function requestLeave(leave: PendingLeave) {
+    if (hasUnsavedChanges()) {
+      session?.stop();
+      setPendingLeave(leave);
+    } else {
+      resolveLeave(leave, false);
+    }
+  }
+
+  async function saveAndLeave(leave: PendingLeave) {
+    const saved = await save();
+    setPendingLeave(null);
+    if (saved) {
+      resolveLeave(leave, false);
+    }
+  }
+
+  /** Runs a scene operation and closes the dialog that triggered it once it succeeds. */
+  async function finishSceneDialog(operation: Promise<string | null>): Promise<string | null> {
+    const error = await operation;
+    if (error === null) {
+      setSceneDialog(null);
+    }
+    return error;
+  }
+
+  if (state.status === 'loading') {
     return (
       <main className="editor-status">
         <h1>{project.name}</h1>
@@ -140,12 +126,12 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
     );
   }
 
-  if (load.status === 'error') {
+  if (state.status === 'error') {
     return (
       <main className="editor-status">
         <h1>{project.name}</h1>
         <p className="form-error" role="alert">
-          {load.message}
+          {state.message}
         </p>
         {closeError !== null && (
           <p className="form-error" role="alert">
@@ -153,7 +139,7 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
           </p>
         )}
         <div className="home-actions">
-          <button type="button" className="button button-primary" onClick={() => setAttempt((value) => value + 1)}>
+          <button type="button" className="button button-primary" onClick={workspace.retry}>
             Try Again
           </button>
           <button type="button" className="button" disabled={closing} onClick={() => void closeProject()}>
@@ -164,14 +150,28 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
     );
   }
 
+  const activeScene = state.scenes.find((scene) => scene.id === state.activeSceneId);
+
   return (
     <>
       <Editor
-        session={load.session}
+        key={state.activeSceneId}
+        session={state.session}
         assetsApi={assetsApi}
         projectName={project.name}
+        sceneSelector={
+          <SceneSelector
+            scenes={state.scenes}
+            activeSceneId={state.activeSceneId}
+            disabled={saving || busy || closing}
+            onSelect={(sceneId) => requestLeave({ kind: 'switch', sceneId })}
+            onCreate={() => requestLeave({ kind: 'create' })}
+            onRename={() => setSceneDialog({ kind: 'rename' })}
+            onDelete={() => setSceneDialog({ kind: 'delete' })}
+          />
+        }
         saving={saving}
-        closing={closing}
+        closing={closing || busy}
         onSave={() => void save()}
         onClose={requestClose}
       />
@@ -189,6 +189,42 @@ export function EditorPage({ api, animationApi, assetsApi, project, onClosed }: 
             void closeProject();
           }}
           onCancel={() => setConfirmClose(false)}
+        />
+      )}
+      {pendingLeave !== null && (
+        <UnsavedSceneDialog
+          saving={saving}
+          onSave={() => void saveAndLeave(pendingLeave)}
+          onDiscard={() => {
+            setPendingLeave(null);
+            resolveLeave(pendingLeave, true);
+          }}
+          onCancel={() => setPendingLeave(null)}
+        />
+      )}
+      {sceneDialog?.kind === 'create' && (
+        <SceneNameDialog
+          title="New Scene"
+          submitLabel="Create Scene"
+          initialName=""
+          onCancel={() => setSceneDialog(null)}
+          onSubmit={(name) => finishSceneDialog(workspace.createScene(name, sceneDialog.discardCurrent))}
+        />
+      )}
+      {sceneDialog?.kind === 'rename' && (
+        <SceneNameDialog
+          title="Rename Scene"
+          submitLabel="Rename Scene"
+          initialName={activeScene?.name ?? ''}
+          onCancel={() => setSceneDialog(null)}
+          onSubmit={(name) => finishSceneDialog(workspace.renameActiveScene(name))}
+        />
+      )}
+      {sceneDialog?.kind === 'delete' && (
+        <ConfirmDeleteSceneDialog
+          sceneName={activeScene?.name ?? ''}
+          onCancel={() => setSceneDialog(null)}
+          onConfirm={() => finishSceneDialog(workspace.deleteActiveScene())}
         />
       )}
     </>

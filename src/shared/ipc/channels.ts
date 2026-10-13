@@ -1,6 +1,7 @@
 import type { AnimationDocument } from '../types/animation';
 import type { AssetImportResult, ProjectAsset } from '../types/assets';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from '../types/project';
+import type { SceneCollection } from '../types/scenes';
 
 export const IPC_CHANNELS = {
   createProject: 'project:create',
@@ -9,6 +10,11 @@ export const IPC_CHANNELS = {
   getRecentProjects: 'project:get-recent',
   removeRecentProject: 'project:remove-recent',
   selectDirectory: 'project:select-directory',
+  listScenes: 'scenes:list',
+  createScene: 'scenes:create',
+  renameScene: 'scenes:rename',
+  deleteScene: 'scenes:delete',
+  selectScene: 'scenes:select',
   loadAnimation: 'animation:load',
   saveAnimation: 'animation:save',
   listAssets: 'assets:list',
@@ -27,8 +33,13 @@ export interface IpcContract {
   'project:get-recent': { request: undefined; response: RecentProject[] };
   'project:remove-recent': { request: { projectId: string }; response: void };
   'project:select-directory': { request: undefined; response: string | null };
-  'animation:load': { request: undefined; response: AnimationDocument | null };
-  'animation:save': { request: { document: AnimationDocument }; response: void };
+  'animation:load': { request: { sceneId: string }; response: AnimationDocument | null };
+  'animation:save': { request: { sceneId: string; document: AnimationDocument }; response: void };
+  'scenes:list': { request: undefined; response: SceneCollection };
+  'scenes:create': { request: { name: string }; response: SceneCollection };
+  'scenes:rename': { request: { sceneId: string; name: string }; response: SceneCollection };
+  'scenes:delete': { request: { sceneId: string }; response: SceneCollection };
+  'scenes:select': { request: { sceneId: string }; response: SceneCollection };
   'assets:list': { request: undefined; response: ProjectAsset[] };
   'assets:read-image': { request: { assetId: string }; response: string };
   'assets:import': { request: undefined; response: AssetImportResult };

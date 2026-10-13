@@ -26,8 +26,15 @@ const api: AppAPI = {
     selectDirectory: () => call(IPC_CHANNELS.selectDirectory)
   },
   animation: {
-    loadAnimation: () => call(IPC_CHANNELS.loadAnimation),
-    saveAnimation: (document) => call(IPC_CHANNELS.saveAnimation, { document })
+    loadAnimation: (sceneId) => call(IPC_CHANNELS.loadAnimation, { sceneId }),
+    saveAnimation: (sceneId, document) => call(IPC_CHANNELS.saveAnimation, { sceneId, document })
+  },
+  scenes: {
+    listScenes: () => call(IPC_CHANNELS.listScenes),
+    createScene: (name) => call(IPC_CHANNELS.createScene, { name }),
+    renameScene: (sceneId, name) => call(IPC_CHANNELS.renameScene, { sceneId, name }),
+    deleteScene: (sceneId) => call(IPC_CHANNELS.deleteScene, { sceneId }),
+    selectScene: (sceneId) => call(IPC_CHANNELS.selectScene, { sceneId })
   },
   assets: {
     listAssets: () => call(IPC_CHANNELS.listAssets),

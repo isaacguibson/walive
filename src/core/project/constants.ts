@@ -26,6 +26,16 @@ export const CACHE_DIRECTORY: readonly string[] = ['.cache'];
 
 export const MAX_PROJECT_NAME_LENGTH = 100;
 
+export const MAX_SCENE_NAME_LENGTH = 100;
+
+/** Name given to the first scene of a project (also used when migrating a legacy single animation). */
+export const DEFAULT_SCENE_NAME = 'Scene 1';
+
+/** Directory with the scene registry and one sub-directory per scene. */
+export const SCENES_DIRECTORY = 'scenes';
+
+export const SCENE_REGISTRY_FILE = 'scenes.json';
+
 export const DEFAULT_PROJECT_CANVAS: ProjectCanvas = {
   width: 1920,
   height: 1080,
