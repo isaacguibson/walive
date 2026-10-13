@@ -29,6 +29,7 @@ interface EditorProps {
   sceneSelector: ReactNode;
   saving: boolean;
   closing: boolean;
+  onExport(): void;
   onSave(): void;
   onClose(): void;
 }
@@ -55,7 +56,7 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 /** The four editor areas plus the project header. Owns shortcuts and fullscreen, never persistence. */
-export function Editor({ session, assetsApi, projectName, sceneSelector, saving, closing, onSave, onClose }: EditorProps) {
+export function Editor({ session, assetsApi, projectName, sceneSelector, saving, closing, onExport, onSave, onClose }: EditorProps) {
   const snapshot = useEditorSnapshot(session);
   const { state } = snapshot;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -192,6 +193,15 @@ export function Editor({ session, assetsApi, projectName, sceneSelector, saving,
           </span>
           <div className="editor-header-actions">
             {sceneSelector}
+            <IconButton
+              icon="export"
+              label="Export"
+              tooltip="Export frames or animation"
+              variant="default"
+              text="Export"
+              disabled={saving || closing}
+              onClick={onExport}
+            />
             <IconButton
               icon="save"
               label="Save Project"

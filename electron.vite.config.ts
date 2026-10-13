@@ -4,6 +4,7 @@ import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const sharedAlias = { '@shared': resolve(__dirname, 'src/shared'), '@core': resolve(__dirname, 'src/core') };
+const mainAlias = { ...sharedAlias, '@editor': resolve(__dirname, 'src/editor') };
 
 const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -18,7 +19,7 @@ const productionCsp: Plugin = {
 
 export default defineConfig({
   main: {
-    resolve: { alias: sharedAlias },
+    resolve: { alias: mainAlias },
     build: {
       rollupOptions: { input: { main: resolve(__dirname, 'src/main/main.ts') } }
     }

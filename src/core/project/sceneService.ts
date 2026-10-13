@@ -3,7 +3,7 @@ import { parseAnimationManifest } from './animationFormat';
 import { DEFAULT_SCENE_NAME } from './constants';
 import { normalizeSceneName } from './names';
 import type { ProjectRepository } from './projectRepository';
-import { layerFilesOf, readSceneAnimation, writeSceneAnimation } from './sceneAnimation';
+import { layerFilesOf, openSceneFrames, readSceneAnimation, writeSceneAnimation, type SceneFrameSource } from './sceneAnimation';
 import { parseSceneRegistry, toSceneRegistryFile } from './sceneFormat';
 import type { OpenProject } from './types';
 import { AppError } from '../errors';
@@ -103,6 +103,15 @@ export class SceneService {
       const { path: projectPath, metadata } = this.requireProject();
       this.requireScene(await this.readRegistry(projectPath), sceneId);
       return readSceneAnimation(this.repository, projectPath, sceneId, metadata.canvas);
+    });
+  }
+
+  /** Opens the saved frames of a scene for streaming. */
+  openFrames(sceneId: string): Promise<SceneFrameSource> {
+    return this.exclusive(async () => {
+      const { path: projectPath, metadata } = this.requireProject();
+      this.requireScene(await this.readRegistry(projectPath), sceneId);
+      return openSceneFrames(this.repository, projectPath, sceneId, metadata.canvas);
     });
   }
 

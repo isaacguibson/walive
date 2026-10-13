@@ -1,5 +1,12 @@
 import type { AnimationDocument } from '../types/animation';
 import type { AssetImportResult, ProjectAsset } from '../types/assets';
+import type {
+  DestinationQuery,
+  ExportCapabilities,
+  ExportDestination,
+  ExportRequest,
+  ExportResult
+} from '../types/export';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from '../types/project';
 import type { SceneCollection } from '../types/scenes';
 
@@ -21,7 +28,17 @@ export const IPC_CHANNELS = {
   readAssetImage: 'assets:read-image',
   importAssets: 'assets:import',
   renameAsset: 'assets:rename',
-  deleteAsset: 'assets:delete'
+  deleteAsset: 'assets:delete',
+  exportCapabilities: 'export:capabilities',
+  exportDestination: 'export:destination',
+  exportStart: 'export:start',
+  exportCancel: 'export:cancel',
+  exportReveal: 'export:reveal'
+} as const;
+
+/** Channels the main process pushes to the renderer. */
+export const IPC_EVENTS = {
+  exportProgress: 'export:progress'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -45,6 +62,11 @@ export interface IpcContract {
   'assets:import': { request: undefined; response: AssetImportResult };
   'assets:rename': { request: { assetId: string; newName: string }; response: ProjectAsset };
   'assets:delete': { request: { assetId: string }; response: void };
+  'export:capabilities': { request: undefined; response: ExportCapabilities };
+  'export:destination': { request: DestinationQuery; response: ExportDestination | null };
+  'export:start': { request: ExportRequest; response: ExportResult };
+  'export:cancel': { request: undefined; response: void };
+  'export:reveal': { request: undefined; response: void };
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request'];

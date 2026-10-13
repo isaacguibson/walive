@@ -1,4 +1,4 @@
-import type { AnimationAPI, AssetsAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import type { AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 
 /** Returns the project API provided by the preload script. */
 export function getProjectApi(): ProjectAPI {
@@ -18,4 +18,9 @@ export function getScenesApi(): ScenesAPI {
 /** Returns the project asset API provided by the preload script. */
 export function getAssetsApi(): AssetsAPI {
   return window.api.assets;
+}
+
+/** Returns the export API provided by the preload script. */
+export function getExportApi(): ExportAPI {
+  return window.api.export;
 }

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, type IpcChannel, type IpcRequest, type IpcResponse } from '@shared/ipc/channels';
+import { IPC_CHANNELS, IPC_EVENTS, type IpcChannel, type IpcRequest, type IpcResponse } from '@shared/ipc/channels';
 import type { AppAPI } from '@shared/types/api';
+import type { ExportProgress } from '@shared/types/export';
 import type { IpcResult } from '@shared/types/errors';
 
 /** Calls one known channel and converts transport failures into an `IpcResult`. */
@@ -42,6 +43,21 @@ const api: AppAPI = {
     importAssets: () => call(IPC_CHANNELS.importAssets),
     renameAsset: (assetId, newName) => call(IPC_CHANNELS.renameAsset, { assetId, newName }),
     deleteAsset: (assetId) => call(IPC_CHANNELS.deleteAsset, { assetId })
+  },
+  export: {
+    getCapabilities: () => call(IPC_CHANNELS.exportCapabilities),
+    chooseDestination: (query) => call(IPC_CHANNELS.exportDestination, query),
+    startExport: (request) => call(IPC_CHANNELS.exportStart, request),
+    cancelExport: () => call(IPC_CHANNELS.exportCancel),
+    revealOutput: () => call(IPC_CHANNELS.exportReveal),
+    onProgress: (listener) => {
+      // The Electron event is never handed to the renderer, only the progress payload.
+      const subscription = (_event: unknown, progress: ExportProgress): void => listener(progress);
+      ipcRenderer.on(IPC_EVENTS.exportProgress, subscription);
+      return () => {
+        ipcRenderer.removeListener(IPC_EVENTS.exportProgress, subscription);
+      };
+    }
   }
 };
 

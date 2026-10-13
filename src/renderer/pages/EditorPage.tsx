@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import type { AnimationAPI, AssetsAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import type { AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectMetadata } from '@shared/types/project';
 import { ConfirmCloseDialog } from '../components/editor/ConfirmCloseDialog';
 import { ConfirmDeleteSceneDialog } from '../components/editor/ConfirmDeleteSceneDialog';
 import { Editor } from '../components/editor/Editor';
+import { ExportDialog } from '../components/editor/ExportDialog';
 import { SceneNameDialog } from '../components/editor/SceneNameDialog';
 import { SceneSelector } from '../components/editor/SceneSelector';
 import { UnsavedSceneDialog } from '../components/editor/UnsavedSceneDialog';
@@ -14,6 +15,7 @@ interface EditorPageProps {
   animationApi: AnimationAPI;
   assetsApi: AssetsAPI;
   scenesApi: ScenesAPI;
+  exportApi: ExportAPI;
   project: ProjectMetadata;
   onClosed(): void;
 }
@@ -28,7 +30,7 @@ type SceneDialog = { kind: 'create'; discardCurrent: boolean } | { kind: 'rename
  * coordinates saving, scene management and closing. The editor never touches
  * files itself.
  */
-export function EditorPage({ api, animationApi, assetsApi, scenesApi, project, onClosed }: EditorPageProps) {
+export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi, project, onClosed }: EditorPageProps) {
   const workspace = useSceneWorkspace(project, animationApi, scenesApi);
   const { state, saving, busy, save } = workspace;
   const [closing, setClosing] = useState(false);
@@ -36,7 +38,7 @@ export function EditorPage({ api, animationApi, assetsApi, scenesApi, project, o
   const [closeError, setCloseError] = useState<string | null>(null);
   const [pendingLeave, setPendingLeave] = useState<PendingLeave | null>(null);
   const [sceneDialog, setSceneDialog] = useState<SceneDialog | null>(null);
-
+  const [exporting, setExporting] = useState(false);
   const session = state.status === 'ready' ? state.session : null;
 
   async function closeProject() {
@@ -172,9 +174,23 @@ export function EditorPage({ api, animationApi, assetsApi, scenesApi, project, o
         }
         saving={saving}
         closing={closing || busy}
+        onExport={() => {
+          session?.stop();
+          setExporting(true);
+        }}
         onSave={() => void save()}
         onClose={requestClose}
       />
+      {exporting && (
+        <ExportDialog
+          session={state.session}
+          exportApi={exportApi}
+          projectName={project.name}
+          sceneName={activeScene?.name ?? ''}
+          onSave={save}
+          onClose={() => setExporting(false)}
+        />
+      )}
       {closeError !== null && (
         <p className="form-error editor-toast" role="alert">
           {closeError}

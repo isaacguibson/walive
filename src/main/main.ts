@@ -1,13 +1,17 @@
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { JsonRecentProjectRepository } from '@core/application/jsonRecentProjectRepository';
+import { ExportApplication } from '@core/application/exportApplication';
 import { ProjectApplication } from '@core/application/projectApplication';
 import { RecentProjectsService } from '@core/application/recentProjectsService';
 import { consoleLogger } from '@core/logger';
 import { ProjectService } from '@core/project/projectService';
+import { IPC_EVENTS } from '@shared/ipc/channels';
 import { registerIpcHandlers } from './ipc/registerIpcHandlers';
 import { ElectronAssetFilePicker } from './services/assetFilePicker';
 import { ElectronDirectoryPicker } from './services/directoryPicker';
+import { ElectronExportDestinationPicker } from './services/exportDestinationPicker';
+import { ElectronOutputRevealer, resolveFfmpegPath } from './services/exportSystem';
 import { createWindowOptions } from './windowOptions';
 
 const RECENT_PROJECTS_FILE = 'recent-projects.json';
@@ -54,10 +58,22 @@ function bootstrap(): void {
     projectService
   );
   const application = new ProjectApplication(projectService, recents, consoleLogger);
+  const exports = new ExportApplication(projectService, {
+    picker: new ElectronExportDestinationPicker(),
+    revealer: new ElectronOutputRevealer(),
+    publishProgress: (progress) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_EVENTS.exportProgress, progress);
+      }
+    },
+    ffmpegPath: resolveFfmpegPath(),
+    logger: consoleLogger
+  });
 
   registerIpcHandlers({
     ipc: ipcMain,
     application,
+    exports,
     directoryPicker: new ElectronDirectoryPicker(),
     assetPicker: new ElectronAssetFilePicker(),
     logger: consoleLogger

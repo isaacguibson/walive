@@ -1,6 +1,14 @@
 import type { IpcResult } from './errors';
 import type { AnimationDocument } from './animation';
 import type { AssetImportResult, ProjectAsset } from './assets';
+import type {
+  DestinationQuery,
+  ExportCapabilities,
+  ExportDestination,
+  ExportProgress,
+  ExportRequest,
+  ExportResult
+} from './export';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from './project';
 import type { SceneCollection } from './scenes';
 
@@ -61,9 +69,28 @@ export interface AssetsAPI {
   deleteAsset(assetId: string): Promise<IpcResult<void>>;
 }
 
+/**
+ * Frame and animation export (HU_00012). Output paths are chosen in native
+ * dialogs owned by the main process; the renderer only refers to them by id.
+ */
+export interface ExportAPI {
+  /** Formats whose encoder is available on this machine. */
+  getCapabilities(): Promise<IpcResult<ExportCapabilities>>;
+  /** Shows the native file or folder dialog. Resolves to `null` when cancelled. */
+  chooseDestination(query: DestinationQuery): Promise<IpcResult<ExportDestination | null>>;
+  /** Runs the export and resolves when it finished, failed or was cancelled. */
+  startExport(request: ExportRequest): Promise<IpcResult<ExportResult>>;
+  cancelExport(): Promise<IpcResult<void>>;
+  /** Shows the output of the last successful export in the file manager. */
+  revealOutput(): Promise<IpcResult<void>>;
+  /** Subscribes to export progress; returns the unsubscribe function. */
+  onProgress(listener: (progress: ExportProgress) => void): () => void;
+}
+
 export interface AppAPI {
   project: ProjectAPI;
   animation: AnimationAPI;
   scenes: ScenesAPI;
   assets: AssetsAPI;
+  export: ExportAPI;
 }

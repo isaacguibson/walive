@@ -3,12 +3,14 @@ import { useEffect, useRef, type ReactNode } from 'react';
 interface DialogProps {
   title: string;
   titleId: string;
+  /** Extra class for dialogs that need more room than the default width. */
+  className?: string;
   onCancel(): void;
   children: ReactNode;
 }
 
 /** Modal dialog with Escape-to-close and focus moved inside on open. */
-export function Dialog({ title, titleId, onCancel, children }: DialogProps) {
+export function Dialog({ title, titleId, className, onCancel, children }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,7 +24,7 @@ export function Dialog({ title, titleId, onCancel, children }: DialogProps) {
     <div className="dialog-backdrop">
       <div
         ref={ref}
-        className="dialog"
+        className={className === undefined ? 'dialog' : `dialog ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

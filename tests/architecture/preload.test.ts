@@ -1,20 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { IPC_CHANNELS } from '@shared/ipc/channels';
+import { IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc/channels';
 
-const { exposeInMainWorld, invoke } = vi.hoisted(() => ({ exposeInMainWorld: vi.fn(), invoke: vi.fn() }));
+const { exposeInMainWorld, invoke, on, removeListener } = vi.hoisted(() => ({
+  exposeInMainWorld: vi.fn(),
+  invoke: vi.fn(),
+  on: vi.fn(),
+  removeListener: vi.fn()
+}));
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld },
-  ipcRenderer: { invoke }
+  ipcRenderer: { invoke, on, removeListener }
 }));
 
 type Api = Record<string, (...args: unknown[]) => Promise<unknown>>;
+type FullApi = { project: Api; animation: Api; scenes: Api; assets: Api; export: Api };
 
-async function loadFullApi(): Promise<{ project: Api; animation: Api; scenes: Api; assets: Api }> {
+async function loadFullApi(): Promise<FullApi> {
   vi.resetModules();
   exposeInMainWorld.mockClear();
   await import('../../src/preload/preload');
-  const [name, api] = exposeInMainWorld.mock.calls[0] as [string, { project: Api; animation: Api; scenes: Api; assets: Api }];
+  const [name, api] = exposeInMainWorld.mock.calls[0] as [string, FullApi];
   expect(name).toBe('api');
   return api;
 }
@@ -29,11 +35,19 @@ describe('preload API', () => {
     invoke.mockResolvedValue({ ok: true, value: undefined });
   });
 
-  it('exposes a single "api" object with only the project, animation, scene and asset operations', async () => {
-    const { project, animation, scenes, assets } = await loadFullApi();
+  it('exposes a single "api" object with only the project, animation, scene, asset and export operations', async () => {
+    const { project, animation, scenes, assets, export: exportApi } = await loadFullApi();
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [, api] = exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
-    expect(Object.keys(api).sort()).toEqual(['animation', 'assets', 'project', 'scenes']);
+    expect(Object.keys(api).sort()).toEqual(['animation', 'assets', 'export', 'project', 'scenes']);
+    expect(Object.keys(exportApi).sort()).toEqual([
+      'cancelExport',
+      'chooseDestination',
+      'getCapabilities',
+      'onProgress',
+      'revealOutput',
+      'startExport'
+    ]);
     expect(Object.keys(scenes).sort()).toEqual(['createScene', 'deleteScene', 'listScenes', 'renameScene', 'selectScene']);
     expect(Object.keys(assets).sort()).toEqual(['deleteAsset', 'importAssets', 'listAssets', 'readAssetImage', 'renameAsset']);
     expect(Object.keys(animation).sort()).toEqual(['loadAnimation', 'saveAnimation']);
@@ -110,6 +124,37 @@ describe('preload API', () => {
       [IPC_CHANNELS.renameAsset, { assetId: 'assets/images/a.png', newName: 'b' }],
       [IPC_CHANNELS.deleteAsset, { assetId: 'assets/images/a.png' }]
     ]);
+  });
+
+  it('routes export operations through their explicit IPC channels', async () => {
+    const { export: exportApi } = await loadFullApi();
+    const query = { kind: 'frames', scope: 'active', format: 'mp4', suggestedName: 'Scene' };
+    const request = { kind: 'current-frame', destinationId: 'd1', overwrite: false, frameId: 'f1' };
+    await exportApi['getCapabilities']?.();
+    await exportApi['chooseDestination']?.(query);
+    await exportApi['startExport']?.(request);
+    await exportApi['cancelExport']?.();
+    await exportApi['revealOutput']?.();
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.exportCapabilities, undefined],
+      [IPC_CHANNELS.exportDestination, query],
+      [IPC_CHANNELS.exportStart, request],
+      [IPC_CHANNELS.exportCancel, undefined],
+      [IPC_CHANNELS.exportReveal, undefined]
+    ]);
+  });
+
+  it('forwards export progress without exposing the Electron event, and can unsubscribe', async () => {
+    const { export: exportApi } = await loadFullApi();
+    const listener = vi.fn();
+    const unsubscribe = (exportApi['onProgress'] as unknown as (listener: unknown) => () => void)(listener);
+    const [channel, subscription] = on.mock.calls[0] as [string, (event: unknown, progress: unknown) => void];
+    expect(channel).toBe(IPC_EVENTS.exportProgress);
+    const progress = { stage: 'rendering', current: 1, total: 2, sceneName: 'Scene 1' };
+    subscription({ sender: 'secret' }, progress);
+    expect(listener).toHaveBeenCalledWith(progress);
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(IPC_EVENTS.exportProgress, subscription);
   });
 
   it('turns IPC transport failures into error results instead of rejecting', async () => {

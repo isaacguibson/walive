@@ -1,7 +1,8 @@
 import { vi } from 'vitest';
-import type { AnimationAPI, AssetsAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import type { AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectAsset } from '@shared/types/assets';
-import type { IpcResult } from '@shared/types/errors';
+import type { AppErrorCode, IpcResult } from '@shared/types/errors';
+import type { ExportProgress } from '@shared/types/export';
 import type { ProjectMetadata, RecentProject } from '@shared/types/project';
 import type { SceneCollection, SceneInfo } from '@shared/types/scenes';
 
@@ -9,7 +10,7 @@ export function ok<T>(value: T): IpcResult<T> {
   return { ok: true, value };
 }
 
-export function fail<T = never>(message: string, code: 'UNKNOWN' | 'NOT_A_PROJECT' = 'UNKNOWN'): IpcResult<T> {
+export function fail<T = never>(message: string, code: AppErrorCode = 'UNKNOWN'): IpcResult<T> {
   return { ok: false, error: { code, message } };
 }
 
@@ -149,4 +150,30 @@ export function createMockScenesApi(names: string[] = ['Scene 1']): MockScenesAp
       return ok(collection());
     })
   };
+}
+
+export type MockExportApi = { [K in keyof ExportAPI]: ReturnType<typeof vi.fn<ExportAPI[K]>> } & {
+  /** Delivers a progress event to every subscriber, like the main process does. */
+  emitProgress(progress: ExportProgress): void;
+};
+
+/** A mock export API: MP4 and GIF are available, a destination is always chosen and exports succeed. */
+export function createMockExportApi(overrides: Partial<ExportAPI> = {}): MockExportApi {
+  const listeners = new Set<(progress: ExportProgress) => void>();
+  const api: MockExportApi = {
+    getCapabilities: vi.fn<ExportAPI['getCapabilities']>(async () => ok({ animationFormats: ['mp4', 'gif'] })),
+    chooseDestination: vi.fn<ExportAPI['chooseDestination']>(async () => ok({ id: 'destination-1', path: '/exports/output' })),
+    startExport: vi.fn<ExportAPI['startExport']>(async () => ok({ outputPath: '/exports/output', fileCount: 1 })),
+    cancelExport: vi.fn<ExportAPI['cancelExport']>(async () => ok(undefined)),
+    revealOutput: vi.fn<ExportAPI['revealOutput']>(async () => ok(undefined)),
+    onProgress: vi.fn<ExportAPI['onProgress']>((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+    emitProgress: (progress) => listeners.forEach((listener) => listener(progress))
+  };
+  for (const [key, impl] of Object.entries(overrides)) {
+    (api as Record<string, unknown>)[key] = vi.fn(impl as (...args: never[]) => unknown);
+  }
+  return api;
 }

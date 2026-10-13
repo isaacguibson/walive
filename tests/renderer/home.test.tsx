@@ -7,6 +7,7 @@ import {
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
+  createMockExportApi,
   createMockScenesApi,
   fail,
   metadata,
@@ -23,7 +24,15 @@ async function expectEditor(name: string) {
 function renderApp(api = createMockApi()) {
   const user = userEvent.setup();
   const animationApi = createMockAnimationApi();
-  render(<App api={api} animationApi={animationApi} assetsApi={createMockAssetsApi()} scenesApi={createMockScenesApi()} />);
+  render(
+    <App
+      api={api}
+      animationApi={animationApi}
+      assetsApi={createMockAssetsApi()}
+      scenesApi={createMockScenesApi()}
+      exportApi={createMockExportApi()}
+    />
+  );
   return { api, animationApi, user };
 }
 

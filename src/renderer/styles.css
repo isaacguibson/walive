@@ -390,6 +390,74 @@ label[for='keep-aspect-ratio'] {
   color: var(--muted);
 }
 
+/* Export dialog */
+.dialog-wide {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.export-form {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.export-form .field-row .field {
+  flex: 1;
+}
+
+.export-form input[type='color'] {
+  width: 56px;
+  height: 36px;
+  padding: 2px;
+}
+
+.export-checkbox {
+  margin-bottom: 12px;
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.export-summary {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.export-summary div {
+  display: flex;
+  gap: 8px;
+}
+
+.export-summary dt {
+  min-width: 90px;
+  color: var(--muted);
+}
+
+.export-summary dd {
+  margin: 0;
+}
+
+.export-path {
+  overflow-wrap: anywhere;
+}
+
+.export-progress {
+  width: 100%;
+  margin: 12px 0 8px;
+}
+
 /* Editor status screens (loading / load error) */
 .editor-status {
   display: flex;

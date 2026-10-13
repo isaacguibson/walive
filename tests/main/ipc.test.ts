@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { access, writeFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
+import { ExportApplication, type DestinationRequest } from '@core/application/exportApplication';
 import { JsonRecentProjectRepository } from '@core/application/jsonRecentProjectRepository';
 import { ProjectApplication } from '@core/application/projectApplication';
 import { RecentProjectsService } from '@core/application/recentProjectsService';
@@ -25,9 +26,18 @@ async function setup(pickResult: string | null = null, pickedFiles: string[] = [
   const directoryPicker: DirectoryPicker = { pickDirectory: pick };
   const pickFiles = vi.fn(async () => pickedFiles);
   const assetPicker: AssetFilePicker = { pickFiles };
+  const pickDestination = vi.fn(async (_request: DestinationRequest): Promise<string | null> => null);
+  const reveal = vi.fn();
+  const exports = new ExportApplication(projects, {
+    picker: { pick: pickDestination },
+    revealer: { reveal },
+    publishProgress: vi.fn(),
+    ffmpegPath: null
+  });
   registerIpcHandlers({
     ipc: { handle: (channel, listener) => void handlers.set(channel, listener) },
     application,
+    exports,
     directoryPicker,
     assetPicker,
     logger: silentLogger
@@ -41,7 +51,7 @@ async function setup(pickResult: string | null = null, pickedFiles: string[] = [
     return (await handler({}, payload)) as IpcResult<T>;
   }
 
-  return { root, handlers, invoke, pick, pickFiles, projects };
+  return { root, handlers, invoke, pick, pickFiles, projects, pickDestination, reveal };
 }
 
 async function firstSceneId(invoke: <T>(channel: string, payload?: unknown) => Promise<IpcResult<T>>): Promise<string> {
@@ -64,6 +74,11 @@ describe('IPC handlers', () => {
         'assets:list',
         'assets:read-image',
         'assets:rename',
+        'export:cancel',
+        'export:capabilities',
+        'export:destination',
+        'export:reveal',
+        'export:start',
         'project:close',
         'project:create',
         'project:get-recent',
@@ -254,5 +269,73 @@ describe('IPC handlers', () => {
     ] as const) {
       expect(await invoke(channel, payload)).toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } });
     }
+  });
+});
+
+describe('export IPC handlers', () => {
+  const query = { kind: 'current-frame', scope: 'active', format: 'gif', suggestedName: 'My Scene: frame 1' };
+
+  async function setupWithFrame() {
+    const context = await setup();
+    await context.invoke(IPC_CHANNELS.createProject, { name: 'Export', location: context.root, canvas: { width: 2, height: 2, keepAspectRatio: false } });
+    const sceneId = await firstSceneId(context.invoke);
+    const pixels = new Uint8Array(16).fill(255);
+    const document = { width: 2, height: 2, frames: [{ id: 'f1', layers: [{ id: 'l1', name: 'Layer 1', visible: true, pixels }] }] };
+    await context.invoke(IPC_CHANNELS.saveAnimation, { sceneId, document });
+    return context;
+  }
+
+  it('only offers GIF when no MP4 encoder is bundled', async () => {
+    const { invoke } = await setup();
+    expect(await invoke(IPC_CHANNELS.exportCapabilities)).toEqual({ ok: true, value: { animationFormats: ['gif'] } });
+  });
+
+  it('asks the native dialog for a sanitized file name and keeps the path in the main process', async () => {
+    const { invoke, pickDestination, root } = await setup();
+    pickDestination.mockResolvedValueOnce(path.join(root, 'frame.png'));
+    const result = await invoke<{ id: string; path: string }>(IPC_CHANNELS.exportDestination, query);
+    expect(pickDestination).toHaveBeenCalledWith(expect.objectContaining({ kind: 'file', suggestedName: 'My_Scene_frame_1.png', extension: 'png' }));
+    expect(result).toMatchObject({ ok: true, value: { path: path.join(root, 'frame.png') } });
+
+    pickDestination.mockResolvedValueOnce(null);
+    expect(await invoke(IPC_CHANNELS.exportDestination, query)).toEqual({ ok: true, value: null });
+    pickDestination.mockResolvedValueOnce('relative/frame.png');
+    expect(await invoke(IPC_CHANNELS.exportDestination, query)).toMatchObject({ ok: false, error: { code: 'INVALID_LOCATION' } });
+  });
+
+  it('rejects malformed destination queries and export requests', async () => {
+    const { invoke, pickDestination } = await setup();
+    for (const payload of [undefined, {}, { ...query, kind: 'avi' }, { ...query, suggestedName: 3 }, { ...query, scope: 'some' }]) {
+      expect(await invoke(IPC_CHANNELS.exportDestination, payload)).toMatchObject({ ok: false, error: { code: 'INVALID_EXPORT' } });
+    }
+    expect(pickDestination).not.toHaveBeenCalled();
+    for (const payload of [undefined, 'x', {}, { kind: 'current-frame', destinationId: '../x', overwrite: false, frameId: 'f1' }]) {
+      expect(await invoke(IPC_CHANNELS.exportStart, payload)).toMatchObject({ ok: false, error: { code: 'INVALID_EXPORT' } });
+    }
+  });
+
+  it('refuses to export to a destination the user never approved, whatever the request claims', async () => {
+    const { invoke, root } = await setupWithFrame();
+    const forged = { kind: 'current-frame', destinationId: 'forged', overwrite: true, frameId: 'f1', path: path.join(root, 'evil.png') };
+    expect(await invoke(IPC_CHANNELS.exportStart, forged)).toMatchObject({ ok: false, error: { code: 'INVALID_EXPORT' } });
+    await expect(access(path.join(root, 'evil.png'))).rejects.toThrow();
+  });
+
+  it('exports to the approved destination and then reveals it', async () => {
+    const { invoke, pickDestination, reveal, root } = await setupWithFrame();
+    expect(await invoke(IPC_CHANNELS.exportReveal)).toMatchObject({ ok: false, error: { code: 'INVALID_EXPORT' } });
+
+    const target = path.join(root, 'out.png');
+    pickDestination.mockResolvedValueOnce(target);
+    const destination = await invoke<{ id: string }>(IPC_CHANNELS.exportDestination, query);
+    const id = destination.ok ? destination.value.id : '';
+    const request = { kind: 'current-frame', destinationId: id, overwrite: false, frameId: 'f1' };
+    expect(await invoke(IPC_CHANNELS.exportStart, request)).toEqual({ ok: true, value: { outputPath: target, fileCount: 1 } });
+    await expect(access(target)).resolves.toBeUndefined();
+
+    expect(await invoke(IPC_CHANNELS.exportReveal)).toEqual({ ok: true, value: undefined });
+    expect(reveal).toHaveBeenCalledWith(target);
+
+    expect(await invoke(IPC_CHANNELS.exportStart, request)).toMatchObject({ ok: false, error: { code: 'EXPORT_CONFLICT' } });
   });
 });

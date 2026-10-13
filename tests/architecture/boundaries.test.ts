@@ -75,7 +75,8 @@ describe('process boundaries', () => {
     const users = sourceFiles(SRC).filter((file) => /showOpenDialog|showSaveDialog|\bdialog\b.*from 'electron'/.test(readFileSync(file, 'utf8')));
     expect(users.map((file) => path.relative(SRC, file)).sort()).toEqual([
       path.join('main', 'services', 'assetFilePicker.ts'),
-      path.join('main', 'services', 'directoryPicker.ts')
+      path.join('main', 'services', 'directoryPicker.ts'),
+      path.join('main', 'services', 'exportDestinationPicker.ts')
     ]);
   });
 

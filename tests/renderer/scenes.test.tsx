@@ -8,6 +8,7 @@ import {
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
+  createMockExportApi,
   createMockScenesApi,
   fail,
   metadata,
@@ -50,6 +51,7 @@ async function renderScenes(options: Options = {}) {
       animationApi={animationApi}
       assetsApi={createMockAssetsApi()}
       scenesApi={scenesApi}
+      exportApi={createMockExportApi()}
       project={PROJECT}
       onClosed={vi.fn()}
     />
@@ -334,6 +336,7 @@ describe('loading the scenes', () => {
         animationApi={createMockAnimationApi()}
         assetsApi={createMockAssetsApi()}
         scenesApi={scenesApi}
+        exportApi={createMockExportApi()}
         project={PROJECT}
         onClosed={vi.fn()}
       />

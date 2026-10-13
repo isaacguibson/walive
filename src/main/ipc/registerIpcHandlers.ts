@@ -1,6 +1,7 @@
 import { AppError, toAppErrorInfo } from '@core/errors';
 import { describeError, type Logger } from '@core/logger';
 import type { ProjectApplication } from '@core/application/projectApplication';
+import type { ExportApplication } from '@core/application/exportApplication';
 import {
   IPC_CHANNELS,
   type IpcChannel,
@@ -28,6 +29,7 @@ export interface AssetFilePicker {
 export interface IpcDependencies {
   ipc: IpcMainLike;
   application: ProjectApplication;
+  exports: ExportApplication;
   directoryPicker: DirectoryPicker;
   assetPicker: AssetFilePicker;
   logger: Logger;
@@ -55,6 +57,7 @@ function requireString(value: unknown): string {
 export function registerIpcHandlers({
   ipc,
   application,
+  exports,
   directoryPicker,
   assetPicker,
   logger
@@ -163,4 +166,14 @@ export function registerIpcHandlers({
     const request = asRecord(payload) as Partial<IpcRequest<'assets:delete'>>;
     return application.deleteAsset(requireString(request.assetId));
   });
+
+  register(IPC_CHANNELS.exportCapabilities, () => exports.getCapabilities());
+
+  register(IPC_CHANNELS.exportDestination, (payload) => exports.chooseDestination(payload));
+
+  register(IPC_CHANNELS.exportStart, (payload) => exports.start(payload));
+
+  register(IPC_CHANNELS.exportCancel, () => exports.cancel());
+
+  register(IPC_CHANNELS.exportReveal, () => exports.reveal());
 }

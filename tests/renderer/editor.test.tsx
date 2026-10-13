@@ -10,12 +10,14 @@ import {
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
+  createMockExportApi,
   createMockScenesApi,
   fail,
   metadata,
   ok,
   type MockAnimationApi,
   type MockAssetsApi,
+  type MockExportApi,
   type MockProjectApi,
   type MockScenesApi
 } from './helpers';
@@ -29,6 +31,7 @@ interface Options {
   animationApi?: MockAnimationApi;
   assetsApi?: MockAssetsApi;
   scenesApi?: MockScenesApi;
+  exportApi?: MockExportApi;
 }
 
 function renderEditor(options: Options = {}) {
@@ -37,6 +40,7 @@ function renderEditor(options: Options = {}) {
   const animationApi = options.animationApi ?? createMockAnimationApi();
   const assetsApi = options.assetsApi ?? createMockAssetsApi();
   const scenesApi = options.scenesApi ?? createMockScenesApi();
+  const exportApi = options.exportApi ?? createMockExportApi();
   const onClosed = vi.fn();
   render(
     <EditorPage
@@ -44,11 +48,12 @@ function renderEditor(options: Options = {}) {
       animationApi={animationApi}
       assetsApi={assetsApi}
       scenesApi={scenesApi}
+      exportApi={exportApi}
       project={PROJECT}
       onClosed={onClosed}
     />
   );
-  return { user, api, animationApi, assetsApi, scenesApi, onClosed };
+  return { user, api, animationApi, assetsApi, scenesApi, exportApi, onClosed };
 }
 
 async function renderReadyEditor(options: Options = {}) {
