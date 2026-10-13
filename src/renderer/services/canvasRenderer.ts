@@ -1,5 +1,5 @@
 import { consumeDirty, layerDrawings } from '@editor/drawing/raster';
-import type { DrawingData, Frame } from '@editor/model';
+import type { DrawingData, Frame, SelectionPreview } from '@editor/model';
 
 interface LayerSurface {
   canvas: HTMLCanvasElement;
@@ -14,6 +14,10 @@ interface LayerSurface {
  */
 export class CanvasRenderer {
   private readonly surfaces = new WeakMap<DrawingData, LayerSurface>();
+  /** Layer pixels with the selection already moved, built on a canvas of the size of the layer. */
+  private composite: HTMLCanvasElement | null = null;
+  /** The transformed pixels as an image; rebuilt only when they change, not while they are just dragged. */
+  private previewImage: { pixels: Uint8ClampedArray; canvas: HTMLCanvasElement } | null = null;
 
   constructor(
     private readonly target: HTMLCanvasElement,
@@ -24,7 +28,11 @@ export class CanvasRenderer {
     target.height = height;
   }
 
-  render(frame: Frame): void {
+  /**
+   * `preview` is a transformation of the selection that is not in the layer yet: the layer is
+   * drawn without the original pixels and with the transformed ones instead. The layer is not changed.
+   */
+  render(frame: Frame, preview: SelectionPreview | null = null): void {
     const context = this.target.getContext('2d');
     if (context === null) {
       return;
@@ -36,13 +44,47 @@ export class CanvasRenderer {
       if (layer === undefined || !layer.visible) {
         continue;
       }
-      for (const drawing of layerDrawings(layer)) {
+      layerDrawings(layer).forEach((drawing, position) => {
         const surface = this.syncSurface(drawing);
-        if (surface !== null) {
-          context.drawImage(surface.canvas, 0, 0);
+        if (surface === null) {
+          return;
         }
-      }
+        // The pixels of a layer are its first drawing; the curves above them are not selectable.
+        const moved = preview !== null && preview.layerId === layer.id && position === 0 ? this.withPreview(surface, preview) : null;
+        context.drawImage(moved ?? surface.canvas, 0, 0);
+      });
     }
+  }
+
+  private withPreview(surface: LayerSurface, preview: SelectionPreview): HTMLCanvasElement | null {
+    const composite = (this.composite ??= document.createElement('canvas'));
+    composite.width = this.width;
+    composite.height = this.height;
+    const context = composite.getContext('2d');
+    const image = this.previewCanvas(preview);
+    if (context === null || image === null) {
+      return null;
+    }
+    context.drawImage(surface.canvas, 0, 0);
+    context.clearRect(preview.source.x, preview.source.y, preview.source.width, preview.source.height);
+    context.drawImage(image, preview.rect.x, preview.rect.y);
+    return composite;
+  }
+
+  private previewCanvas(preview: SelectionPreview): HTMLCanvasElement | null {
+    if (this.previewImage?.pixels === preview.pixels) {
+      return this.previewImage.canvas;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = preview.rect.width;
+    canvas.height = preview.rect.height;
+    const context = canvas.getContext('2d');
+    if (context === null) {
+      return null;
+    }
+    context.putImageData(new ImageData(preview.pixels as Uint8ClampedArray<ArrayBuffer>, preview.rect.width, preview.rect.height), 0, 0);
+    this.previewImage = { pixels: preview.pixels, canvas };
+    return canvas;
   }
 
   private syncSurface(drawing: DrawingData): LayerSurface | null {

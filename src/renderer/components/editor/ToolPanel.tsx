@@ -7,7 +7,8 @@ const TOOL_ICONS: Record<ToolType, IconName> = {
   brush: 'brush',
   bezier: 'bezier',
   eraser: 'eraser',
-  fill: 'fill'
+  fill: 'fill',
+  select: 'select'
 };
 
 interface ToolPanelProps {

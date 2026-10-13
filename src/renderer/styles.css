@@ -1309,6 +1309,32 @@ label[for='keep-aspect-ratio'] {
   cursor: ew-resize;
 }
 
+/* Selection Tool: covers the canvas and its border; the handles reuse the placement handle look. */
+.selection-overlay {
+  position: absolute;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.selection-area {
+  position: absolute;
+  pointer-events: none;
+}
+
+.selection-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed #fff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 75%),
+    inset 0 0 0 1px rgb(0 0 0 / 75%);
+  cursor: move;
+}
+
+.selection-box[data-creating='true'] {
+  pointer-events: none;
+}
+
 .placement-bar {
   position: absolute;
   bottom: 10px;

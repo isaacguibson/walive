@@ -1,7 +1,17 @@
 import type { BrushDefinition } from '../brushes/brush';
 import type { BezierCurve, CurveStyle } from '../curves/curve';
 import type { CurveEdit } from '../curves/curveEdit';
-import type { BrushSettings, CurveEditorState, DrawingData, Point, Rect, Rgb, ToolType } from '../model';
+import type {
+  BrushSettings,
+  CurveEditorState,
+  DrawingData,
+  Point,
+  Rect,
+  Rgb,
+  SelectionOptions,
+  SelectionState,
+  ToolType
+} from '../model';
 
 /** Pointer position already converted to logical canvas pixels (HU_00004 §33, §55). */
 export interface ToolPointerEvent {
@@ -54,6 +64,11 @@ export interface ToolContext {
   toCanvasDistance(screenPixels: number): number;
   /** Publishes what the Bézier tool is working on, for the overlay and the options panel. */
   setCurveEditor(state: CurveEditorState): void;
+  /** The active layer and its pixels; `null` (after reporting the reason) when the layer cannot be edited. */
+  getActiveLayerPixels(): { readonly layerId: string; readonly drawing: DrawingData } | null;
+  getSelectionOptions(): SelectionOptions;
+  /** Publishes the rectangle of the Selection Tool for the overlay; `null` when there is none. */
+  setSelection(state: SelectionState | null): void;
   reportError(message: string): void;
 }
 

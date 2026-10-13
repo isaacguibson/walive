@@ -45,5 +45,7 @@ export const CURVE_HIT_SCREEN_PX = 6;
 export const CURVE_HANDLE_HIT_SCREEN_PX = 8;
 /** How far the pointer must move before a press turns into a drag, in screen pixels. */
 export const CURVE_DRAG_SCREEN_PX = 3;
+/** Distance, in screen pixels, within which a press grabs a handle of the selection. */
+export const SELECTION_HANDLE_HIT_SCREEN_PX = 8;
 /** Anchors placed closer than this (screen pixels) to the previous one are ignored, which makes a double-click safe. */
 export const CURVE_DOUBLE_CLICK_SCREEN_PX = 4;

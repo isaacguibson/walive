@@ -170,7 +170,7 @@ describe('Bézier tool', () => {
     expect(editorOf(session).draft?.anchors).toHaveLength(2);
     expect(curvesOf(session)).toHaveLength(0);
 
-    expect(session.runShortcut('curve.finish')).toBe(true);
+    expect(session.runShortcut('tool.finish')).toBe(true);
     expect(editorOf(session).draft).toBeNull();
     expect(curvesOf(session)).toHaveLength(1);
     expect(editorOf(session).selectedCurveId).toBe(curvesOf(session)[0]?.id);
@@ -213,7 +213,7 @@ describe('Bézier tool', () => {
 
     click(session, 2, 8);
     click(session, 14, 8);
-    expect(session.runShortcut('curve.cancel')).toBe(true);
+    expect(session.runShortcut('tool.cancel')).toBe(true);
     expect(curvesOf(session)).toHaveLength(0);
     expect(editorOf(session).draft).toBeNull();
     expect(session.getSnapshot().canUndo).toBe(false);
@@ -233,15 +233,15 @@ describe('Bézier tool', () => {
     click(session, 2, 8);
     click(session, 8, 8);
     click(session, 14, 8);
-    session.runShortcut('curve.delete');
+    session.runShortcut('tool.delete');
     expect(editorOf(session).draft?.anchors).toHaveLength(2);
   });
 
   it('ignores curve shortcuts when another tool is selected', () => {
     const session = curveSession();
     session.selectTool('brush');
-    expect(session.runShortcut('curve.finish')).toBe(false);
-    expect(session.runShortcut('curve.delete')).toBe(false);
+    expect(session.runShortcut('tool.finish')).toBe(false);
+    expect(session.runShortcut('tool.delete')).toBe(false);
   });
 
   it('selects a curve by clicking it and starts a new one on empty canvas', () => {
@@ -358,9 +358,9 @@ describe('Bézier tool', () => {
     ]);
     click(session, 8, 4);
     expect(editorOf(session).selectedAnchor).toBe(1);
-    session.runShortcut('curve.delete');
+    session.runShortcut('tool.delete');
     expect(curvesOf(session)[0]?.anchors).toHaveLength(2);
-    session.runShortcut('curve.delete');
+    session.runShortcut('tool.delete');
     expect(curvesOf(session)).toHaveLength(0);
     session.undo();
     expect(curvesOf(session)).toHaveLength(1);

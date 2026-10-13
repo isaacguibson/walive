@@ -8,11 +8,14 @@ import {
   type PointerEvent as ReactPointerEvent
 } from 'react';
 import type { EditorSession, EditorSnapshot } from '@editor/editorSession';
+import { sameRect } from '@editor/drawing/raster';
 import type { Point, Rect } from '@editor/model';
 import {
   fitPlacementRect,
   movePlacement,
   resizePlacement,
+  RESIZE_HANDLES,
+  RESIZE_HANDLE_LABELS,
   SNAP_THRESHOLD_SCREEN_PX,
   type PlacementHandle
 } from '@editor/placement';
@@ -21,6 +24,7 @@ import type { AssetsAPI } from '@shared/types/api';
 import { ASSET_DRAG_MIME } from '@shared/types/assets';
 import { CanvasRenderer } from '../../services/canvasRenderer';
 import { CurveOverlay } from './CurveOverlay';
+import { SelectionOverlay } from './SelectionOverlay';
 
 interface CanvasWorkspaceProps {
   session: EditorSession;
@@ -52,19 +56,6 @@ interface PlacementGesture {
   startY: number;
   startRect: Rect;
 }
-
-const HANDLES: readonly PlacementHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-
-const HANDLE_LABELS: Record<PlacementHandle, string> = {
-  nw: 'top-left',
-  n: 'top',
-  ne: 'top-right',
-  e: 'right',
-  se: 'bottom-right',
-  s: 'bottom',
-  sw: 'bottom-left',
-  w: 'left'
-};
 
 function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -101,14 +92,10 @@ function sourceSize(source: HTMLImageElement): { width: number; height: number }
   return { width: source.naturalWidth || source.width || 256, height: source.naturalHeight || source.height || 256 };
 }
 
-function sameRect(a: Rect, b: Rect): boolean {
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-}
-
 /** Area 4: the drawing surface. Displays the active frame and routes pointer input to the editor. */
 export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspaceProps) {
   const { width, height } = snapshot;
-  const { zoom, selectedTool, isPlaying, eraserSize } = snapshot.state;
+  const { zoom, selectedTool, isPlaying, eraserSize, selection, selectionOptions } = snapshot.state;
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const onionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -164,7 +151,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     }
     const renderer = new CanvasRenderer(canvas, width, height);
     rendererRef.current = renderer;
-    const draw = () => renderer.render(session.engine.getActiveFrame());
+    const draw = () => renderer.render(session.engine.getActiveFrame(), session.getSelectionPreview());
     draw();
     const stopContent = session.engine.subscribeContent(draw);
     const stopStructure = session.engine.subscribe(draw);
@@ -174,6 +161,11 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
       rendererRef.current = null;
     };
   }, [session, width, height]);
+
+  // The Selection Tool shows a transformation over the layer before it is applied; redraw when it changes.
+  useEffect(() => {
+    rendererRef.current?.render(session.engine.getActiveFrame(), session.getSelectionPreview());
+  }, [session, selection, selectionOptions.resampling]);
 
   // The placement only makes sense while its layer is in the active frame (undo, frame changes, deletion).
   useEffect(() => {
@@ -275,7 +267,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     viewport.scrollTop += currentY - anchor.clientY;
   }, [zoom, width, height]);
 
-  function toEvent(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function toEvent(event: ReactPointerEvent<HTMLElement>) {
     const canvas = canvasRef.current;
     if (canvas === null) {
       return null;
@@ -294,7 +286,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     };
   }
 
-  function onPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function onPointerDown(event: ReactPointerEvent<HTMLElement>) {
     const isMiddleButton = event.button === 1 || event.buttons === 4;
     if (isMiddleButton) {
       event.preventDefault();
@@ -332,7 +324,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     session.pointerDown(toolEvent);
   }
 
-  function onPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function onPointerMove(event: ReactPointerEvent<HTMLElement>) {
     const pan = panRef.current;
     if (pan !== null && (event.button === 1 || event.buttons === 4)) {
       event.preventDefault();
@@ -351,7 +343,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     }
   }
 
-  function onPointerUp(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function onPointerUp(event: ReactPointerEvent<HTMLElement>) {
     if (panRef.current !== null && (event.button === 1 || event.buttons === 0)) {
       panRef.current = null;
       setIsPanning(false);
@@ -467,6 +459,13 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
   }
 
   const scale = zoom / 100;
+  const pointerHandlers = {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => session.pointerCancel(event.pointerId),
+    onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => session.pointerCancel(event.pointerId)
+  };
   const { draft, selectedCurveId, selectedAnchor } = snapshot.state.curveEditor;
   const overlayCurve =
     selectedTool !== 'bezier' || isPlaying
@@ -539,12 +538,8 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
             className="drawing-canvas"
             aria-label={`Drawing canvas, ${width} by ${height} pixels`}
             data-testid="drawing-canvas"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
+            {...pointerHandlers}
             onPointerLeave={() => setHoverPoint(null)}
-            onPointerUp={onPointerUp}
-            onPointerCancel={(event) => session.pointerCancel(event.pointerId)}
-            onLostPointerCapture={(event) => session.pointerCancel(event.pointerId)}
             onContextMenu={(event) => event.preventDefault()}
             onDoubleClick={onDoubleClick}
           />
@@ -557,6 +552,9 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
               height={height}
               scale={scale}
             />
+          )}
+          {selectedTool === 'select' && selection !== null && !isPlaying && (
+            <SelectionOverlay selection={selection} width={width} height={height} pointerHandlers={pointerHandlers} />
           )}
           {placement !== null && (
             <div
@@ -574,12 +572,12 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
               onPointerCancel={onPlacementPointerEnd}
             >
               <div className="placement-body" data-handle="move" aria-label="Move image" role="presentation" />
-              {HANDLES.map((handle) => (
+              {RESIZE_HANDLES.map((handle) => (
                 <div
                   key={handle}
                   className={`placement-handle placement-handle-${handle}`}
                   data-handle={handle}
-                  aria-label={`Resize image ${HANDLE_LABELS[handle]}`}
+                  aria-label={`Resize image ${RESIZE_HANDLE_LABELS[handle]}`}
                   role="presentation"
                 />
               ))}

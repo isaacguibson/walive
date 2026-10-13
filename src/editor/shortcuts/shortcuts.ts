@@ -11,9 +11,9 @@ export type ShortcutAction =
   | 'history.undo'
   | 'history.redo'
   | 'project.save'
-  | 'curve.finish'
-  | 'curve.cancel'
-  | 'curve.delete';
+  | 'tool.finish'
+  | 'tool.cancel'
+  | 'tool.delete';
 
 export interface Shortcut {
   /** Lower-case `KeyboardEvent.key`. */
@@ -36,11 +36,11 @@ export const DEFAULT_SHORTCUTS: readonly Shortcut[] = [
   { key: 'z', modifiers: ['ctrl', 'shift'], action: 'history.redo' },
   { key: 'y', modifiers: ['ctrl'], action: 'history.redo' },
   { key: 's', modifiers: ['ctrl'], action: 'project.save' },
-  // Only act while the Bézier tool is selected (see `EditorSession.runShortcut`).
-  { key: 'enter', modifiers: [], action: 'curve.finish' },
-  { key: 'escape', modifiers: [], action: 'curve.cancel' },
-  { key: 'delete', modifiers: [], action: 'curve.delete' },
-  { key: 'backspace', modifiers: [], action: 'curve.delete' }
+  // Act on the selected tool, and only on tools that use them (see `EditorSession.runShortcut`).
+  { key: 'enter', modifiers: [], action: 'tool.finish' },
+  { key: 'escape', modifiers: [], action: 'tool.cancel' },
+  { key: 'delete', modifiers: [], action: 'tool.delete' },
+  { key: 'backspace', modifiers: [], action: 'tool.delete' }
 ];
 
 export interface KeyEventLike {

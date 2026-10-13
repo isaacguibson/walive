@@ -192,12 +192,10 @@ describe('layout and tooltips', () => {
 
   it('uses English labels for the tools', async () => {
     await renderReadyEditor();
-    for (const name of ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Undo', 'Redo']) {
+    for (const name of ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Selection Tool', 'Undo', 'Redo']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
-    for (const name of ['Color Picker', 'Selection Tool']) {
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-    }
+    expect(screen.queryByRole('button', { name: 'Color Picker' })).not.toBeInTheDocument();
   });
 });
 
@@ -575,7 +573,7 @@ describe('placing an image on the canvas', () => {
 describe('tools', () => {
   it('has Brush selected and exactly one tool selected at a time', async () => {
     const { user } = await renderReadyEditor();
-    const tools = ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool'];
+    const tools = ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Selection Tool'];
     expect(screen.getByRole('button', { name: 'Brush' })).toHaveAttribute('aria-pressed', 'true');
     for (const name of tools) {
       await user.click(screen.getByRole('button', { name }));
@@ -672,6 +670,118 @@ describe('tools', () => {
     expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Redo' }));
     expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+  });
+});
+
+describe('Selection Tool', () => {
+  /** Pointer gesture on `target`, which is the canvas or, once there is a selection, its overlay. */
+  function gesture(target: Element, from: [number, number], to: [number, number]): void {
+    const base = { button: 0, pointerId: 1 };
+    fireEvent.pointerDown(target, { ...base, buttons: 1, clientX: from[0], clientY: from[1] });
+    fireEvent.pointerMove(target, { ...base, buttons: 1, clientX: to[0], clientY: to[1] });
+    fireEvent.pointerUp(target, { ...base, buttons: 0, clientX: to[0], clientY: to[1] });
+  }
+
+  async function selectArea() {
+    const result = await renderReadyEditor();
+    await result.user.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    gesture(canvas(), [10, 10], [30, 30]);
+    return result;
+  }
+
+  it('is in the toolbar with a tooltip and an accessible name', async () => {
+    const { user } = await renderReadyEditor();
+    const button = screen.getByRole('button', { name: 'Selection Tool' });
+    expect(button).toHaveAttribute('title', expect.stringMatching(/Selection Tool/));
+    await user.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows its options, with Keep Aspect Ratio off and Smooth resampling by default', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    const options = within(screen.getByRole('region', { name: 'Tool Options' }));
+    expect(options.getByLabelText('Keep Aspect Ratio')).not.toBeChecked();
+    expect(options.getByLabelText('Resampling')).toHaveValue('smooth');
+    expect(options.getByRole('option', { name: 'Nearest Neighbor' })).toBeInTheDocument();
+    expect(options.getByRole('option', { name: 'Smooth' })).toBeInTheDocument();
+    expect(options.queryByLabelText('Color')).not.toBeInTheDocument();
+
+    await user.click(options.getByLabelText('Keep Aspect Ratio'));
+    await user.selectOptions(options.getByLabelText('Resampling'), 'nearest');
+    expect(options.getByLabelText('Keep Aspect Ratio')).toBeChecked();
+    expect(options.getByLabelText('Resampling')).toHaveValue('nearest');
+  });
+
+  it('shows the outline and the eight handles once the area is selected, none while dragging', async () => {
+    await renderReadyEditor();
+    await userEvent.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    const target = canvas();
+    fireEvent.pointerDown(target, { button: 0, pointerId: 1, buttons: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(target, { button: 0, pointerId: 1, buttons: 1, clientX: 30, clientY: 30 });
+    expect(screen.getByTestId('selection-box')).toHaveAttribute('data-creating', 'true');
+    expect(screen.queryByTestId('selection-handle-nw')).not.toBeInTheDocument();
+    fireEvent.pointerUp(target, { button: 0, pointerId: 1, buttons: 0, clientX: 30, clientY: 30 });
+
+    expect(screen.getByTestId('selection-box')).toHaveAttribute('data-creating', 'false');
+    for (const handle of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+      expect(screen.getByTestId(`selection-handle-${handle}`)).toBeInTheDocument();
+    }
+  });
+
+  it('does not select, or mark the project as changed, for a plain click', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    stroke([20, 20]);
+    expect(screen.queryByTestId('selection-overlay')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).not.toHaveTextContent('Unsaved changes');
+  });
+
+  it('clears the selection with Escape and with a click outside', async () => {
+    const { user } = await selectArea();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByTestId('selection-overlay')).not.toBeInTheDocument();
+
+    gesture(canvas(), [10, 10], [30, 30]);
+    expect(screen.getByTestId('selection-overlay')).toBeInTheDocument();
+    stroke([55, 55]);
+    expect(screen.queryByTestId('selection-overlay')).not.toBeInTheDocument();
+  });
+
+  it('marks a pending move as an unsaved change and applies it when saving', async () => {
+    const { user, animationApi } = await renderReadyEditor();
+    stroke([40, 40]);
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent('Unsaved changes'));
+    animationApi.saveAnimation.mockClear();
+
+    await user.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    gesture(canvas(), [30, 30], [50, 50]);
+    gesture(screen.getByTestId('selection-overlay'), [40, 40], [44, 40]);
+    expect(screen.getByTestId('selection-box')).toHaveAttribute('data-pending', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalled());
+    expect(screen.queryByTestId('selection-overlay')).not.toBeInTheDocument();
+  });
+
+  it('applies the move on a click outside and undoes it as one step', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    stroke([20, 20]);
+    await user.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    gesture(canvas(), [5, 5], [40, 40]);
+    gesture(screen.getByTestId('selection-overlay'), [20, 20], [24, 20]);
+    expect(screen.getByTestId('selection-box')).toHaveAttribute('data-pending', 'true');
+    // The overlay disappears under the press, so the browser delivers the release to the canvas below it.
+    fireEvent.pointerDown(screen.getByTestId('selection-overlay'), { button: 0, pointerId: 1, buttons: 1, clientX: 60, clientY: 60 });
+    expect(screen.queryByTestId('selection-overlay')).not.toBeInTheDocument();
+    fireEvent.pointerUp(canvas(), { button: 0, pointerId: 1, buttons: 0, clientX: 60, clientY: 60 });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   });
 });
 

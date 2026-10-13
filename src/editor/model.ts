@@ -10,7 +10,7 @@
 import type { BezierCurve } from './curves/curve';
 import type { CurveCache } from './curves/render';
 
-export type ToolType = 'brush' | 'bezier' | 'eraser' | 'fill';
+export type ToolType = 'brush' | 'bezier' | 'eraser' | 'fill' | 'select';
 
 export type BrushId = 'basic' | 'pencil' | 'charcoal' | 'chalk' | 'particle';
 
@@ -49,6 +49,34 @@ export interface CurveEditorState {
   readonly selectedCurveId: string | null;
   /** Index of the selected anchor of the selected curve or draft. */
   readonly selectedAnchor: number | null;
+}
+
+/** How the pixels of a selection are sampled when it is resized. */
+export type SelectionResampling = 'nearest' | 'smooth';
+
+export interface SelectionOptions {
+  readonly keepAspectRatio: boolean;
+  readonly resampling: SelectionResampling;
+}
+
+/** The rectangle of the Selection Tool, for the overlay. */
+export interface SelectionState {
+  /** Bounds in canvas pixels; they follow the pixels while they are moved or resized. */
+  readonly rect: Rect;
+  /** The rectangle is still being dragged out. */
+  readonly creating: boolean;
+  /** The pixels were moved or resized and the change is not applied to the layer yet. */
+  readonly pending: boolean;
+}
+
+/** Transformed pixels shown over a layer until the transformation is applied. */
+export interface SelectionPreview {
+  readonly layerId: string;
+  /** Where the pixels come from; the layer shows nothing there while the preview is displayed. */
+  readonly source: Rect;
+  /** Where the pixels are drawn; `pixels` has exactly this size. */
+  readonly rect: Rect;
+  readonly pixels: Uint8ClampedArray;
 }
 
 /** Raster content of one layer. Logical size is the project canvas size. */
@@ -109,6 +137,9 @@ export interface EditorState {
   /** Options of the Bézier tool, which keeps its own brush options apart from the Brush tool. */
   curveBrush: BrushConfigState;
   curveEditor: CurveEditorState;
+  /** Rectangle of the Selection Tool; `null` without one. */
+  selection: SelectionState | null;
+  selectionOptions: SelectionOptions;
 }
 
 export interface EditorDocumentState {

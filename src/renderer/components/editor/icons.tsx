@@ -3,6 +3,7 @@ export type IconName =
   | 'bezier'
   | 'eraser'
   | 'fill'
+  | 'select'
   | 'play'
   | 'stop'
   | 'undo'
@@ -47,6 +48,20 @@ const PATHS: Record<IconName, readonly string[]> = {
     'm5 2 5 5',
     'M2 13h15',
     'M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z'
+  ],
+  select: [
+    'M5 3a2 2 0 0 0-2 2',
+    'M19 3a2 2 0 0 1 2 2',
+    'M21 19a2 2 0 0 1-2 2',
+    'M5 21a2 2 0 0 1-2-2',
+    'M9 3h1',
+    'M9 21h1',
+    'M14 3h1',
+    'M14 21h1',
+    'M3 9v1',
+    'M21 9v1',
+    'M3 14v1',
+    'M21 14v1'
   ],
   play: ['M7 4.5v15l12.5-7.5Z'],
   stop: ['M6 6h12v12H6Z'],

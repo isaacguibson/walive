@@ -10,6 +10,19 @@ import type { Rect } from './model';
 
 export type PlacementHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
 
+export const RESIZE_HANDLES: readonly PlacementHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+export const RESIZE_HANDLE_LABELS: Record<PlacementHandle, string> = {
+  nw: 'top-left',
+  n: 'top',
+  ne: 'top-right',
+  e: 'right',
+  se: 'bottom-right',
+  s: 'bottom',
+  sw: 'bottom-left',
+  w: 'left'
+};
+
 /** The image can never be made smaller than this, so it cannot be lost under its own handles. */
 export const MIN_PLACEMENT_SIZE = 4;
 

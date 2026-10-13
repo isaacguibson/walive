@@ -3,7 +3,7 @@ import { BRUSHES, findBrush } from '@editor/brushes/registry';
 import { MAX_TOOL_SIZE, MIN_TOOL_SIZE } from '@editor/constants';
 import { canRemoveAnchor } from '@editor/curves/editing';
 import type { AnchorType, BezierCurve } from '@editor/curves/curve';
-import type { BrushConfigState, EditorState } from '@editor/model';
+import type { BrushConfigState, EditorState, SelectionResampling } from '@editor/model';
 import { TOOL_DEFINITIONS } from '@editor/tools';
 import { parseToolSize } from '@editor/validation';
 import { IconButton } from './IconButton';
@@ -34,6 +34,8 @@ interface ToolOptionsProps {
   onUsePenPressureOpacityChange(enabled: boolean): void;
   onStabilizeStrokeChange(enabled: boolean): void;
   onEraserSizeChange(size: string): boolean;
+  onSelectionKeepAspectRatioChange(enabled: boolean): void;
+  onSelectionResamplingChange(resampling: SelectionResampling): void;
 }
 
 interface SizeFieldProps {
@@ -226,7 +228,9 @@ export function ToolOptions({
   onUsePenPressureChange,
   onUsePenPressureOpacityChange,
   onStabilizeStrokeChange,
-  onEraserSizeChange
+  onEraserSizeChange,
+  onSelectionKeepAspectRatioChange,
+  onSelectionResamplingChange
 }: ToolOptionsProps) {
   const tool = TOOL_DEFINITIONS.find((candidate) => candidate.id === state.selectedTool);
   const colorField = (
@@ -378,6 +382,37 @@ export function ToolOptions({
       )}
 
       {state.selectedTool === 'fill' && colorField}
+
+      {state.selectedTool === 'select' && (
+        <>
+          <p className="muted">
+            Drag to select an area of the active layer. Drag inside it to move, drag a handle to resize. Click outside to apply, Esc to
+            cancel.
+          </p>
+          <div className="checkbox-field">
+            <label className="checkbox-row" htmlFor="selection-keep-aspect-ratio">
+              <input
+                id="selection-keep-aspect-ratio"
+                type="checkbox"
+                checked={state.selectionOptions.keepAspectRatio}
+                onChange={(event) => onSelectionKeepAspectRatioChange(event.target.checked)}
+              />
+              <span>Keep Aspect Ratio</span>
+            </label>
+          </div>
+          <div className="field">
+            <label htmlFor="selection-resampling">Resampling</label>
+            <select
+              id="selection-resampling"
+              value={state.selectionOptions.resampling}
+              onChange={(event) => onSelectionResamplingChange(event.target.value as SelectionResampling)}
+            >
+              <option value="nearest">Nearest Neighbor</option>
+              <option value="smooth">Smooth</option>
+            </select>
+          </div>
+        </>
+      )}
 
       {state.selectedTool === 'eraser' && <p className="muted">Erases only the active layer.</p>}
     </section>

@@ -13,7 +13,17 @@ import {
 } from './constants';
 import type { AnchorType, CurveStyle } from './curves/curve';
 import { EditorError } from './errors';
-import type { CurveEditorState, EditorState, Frame, Layer, ToolType } from './model';
+import type {
+  CurveEditorState,
+  EditorState,
+  Frame,
+  Layer,
+  SelectionOptions,
+  SelectionPreview,
+  SelectionResampling,
+  SelectionState,
+  ToolType
+} from './model';
 import { PlaybackController, browserClock, type PlaybackClock } from './playback/playbackController';
 import type { ShortcutAction } from './shortcuts/shortcuts';
 import { createTools, type Tools } from './tools';
@@ -88,6 +98,8 @@ export class EditorSession {
   private readonly brush = new BrushConfig();
   private readonly curveBrush = new BrushConfig();
   private curveEditor: CurveEditorState = { draft: null, selectedCurveId: null, selectedAnchor: null };
+  private selection: SelectionState | null = null;
+  private selectionOptions: SelectionOptions = { keepAspectRatio: false, resampling: 'smooth' };
   private readonly strokeSeed: () => number;
   private usePenPressure = false;
   private usePenPressureOpacity = false;
@@ -179,15 +191,18 @@ export class EditorSession {
         stabilizeStroke: this.stabilizeStroke,
         eraserSize: this.eraserSize,
         curveBrush: this.curveBrush.state,
-        curveEditor: this.curveEditor
+        curveEditor: this.curveEditor,
+        selection: this.selection,
+        selectionOptions: this.selectionOptions
       },
       frames: this.engine.getFrames(),
       activeFrame,
       activeLayer: this.engine.getActiveLayer(),
-      canUndo: this.engine.canUndo,
+      canUndo: this.engine.canUndo || this.tools.select.hasPending(),
       canRedo: this.engine.canRedo,
       canPaste: clipboardValue !== null,
-      isDirty: this.engine.isDirty,
+      // A transformation that is still waiting to be applied is a change that has not been saved.
+      isDirty: this.engine.isDirty || this.tools.select.hasPending(),
       onionEnabled: this.onionEnabled,
       manualReferenceFrameId: this.engine.manualReferenceFrameId,
       error: this.error
@@ -301,6 +316,22 @@ export class EditorSession {
     return true;
   }
 
+  setSelectionKeepAspectRatio(keepAspectRatio: boolean): void {
+    this.selectionOptions = { ...this.selectionOptions, keepAspectRatio };
+    this.bump();
+  }
+
+  /** Changes how the selection is sampled; a transformation that is waiting to be applied shows it at once. */
+  setSelectionResampling(resampling: SelectionResampling): void {
+    this.selectionOptions = { ...this.selectionOptions, resampling };
+    this.bump();
+  }
+
+  /** Transformed pixels to show over the active layer; `null` unless the Selection Tool has a pending change. */
+  getSelectionPreview(): SelectionPreview | null {
+    return this.tools.select.preview();
+  }
+
   // ---- Pointer input (already converted to canvas pixels) -----------------
 
   pointerDown(event: ToolPointerEvent): void {
@@ -385,6 +416,16 @@ export class EditorSession {
     this.curveAction((tool) => tool.applyStyle());
   }
 
+  // ---- Selection Tool ----------------------------------------------------
+
+  /** Reverts a transformation waiting to be applied (nothing is recorded in the history); without one, clears the selection. */
+  cancelSelection(): void {
+    if (this.playback.isPlaying || this.activePointerId !== null || this.selectedTool !== 'select') {
+      return;
+    }
+    this.tools.select.cancel();
+  }
+
   // ---- View, FPS, playback -----------------------------------------------
 
   /** Sets the zoom percentage. Values that are not greater than zero are rejected. */
@@ -424,7 +465,7 @@ export class EditorSession {
     if (this.activePointerId !== null) {
       return false;
     }
-    this.settleCurve();
+    this.settlePending();
     return this.playback.start();
   }
 
@@ -473,7 +514,7 @@ export class EditorSession {
       return;
     }
     this.playback.stop();
-    this.settleCurve();
+    this.settlePending();
     this.run(() => this.engine.selectFrame(frameId));
   }
 
@@ -482,7 +523,7 @@ export class EditorSession {
       return;
     }
     this.playback.stop();
-    this.settleCurve();
+    this.settlePending();
     this.run(() => this.engine.selectLayer(layerId));
   }
 
@@ -585,9 +626,13 @@ export class EditorSession {
   // ---- History -----------------------------------------------------------
 
   undo(): void {
-    // An unfinished curve is the latest action: undoing discards it instead of stepping back in the history.
+    // An unfinished curve or transformation is the latest action: undoing discards it instead of stepping back in the history.
     if (this.curveEditor.draft !== null) {
       this.cancelCurve();
+      return;
+    }
+    if (this.tools.select.hasPending()) {
+      this.cancelSelection();
       return;
     }
     this.edit(() => this.engine.undo());
@@ -627,15 +672,22 @@ export class EditorSession {
       case 'history.redo':
         this.redo();
         return true;
-      case 'curve.finish':
-      case 'curve.cancel':
-      case 'curve.delete':
+      case 'tool.finish':
+      case 'tool.cancel':
+      case 'tool.delete':
+        if (this.selectedTool === 'select') {
+          // The selection only answers to Escape.
+          if (action === 'tool.cancel') {
+            this.cancelSelection();
+          }
+          return action === 'tool.cancel';
+        }
         if (this.selectedTool !== 'bezier') {
           return false;
         }
-        if (action === 'curve.finish') {
+        if (action === 'tool.finish') {
           this.finishCurve();
-        } else if (action === 'curve.cancel') {
+        } else if (action === 'tool.cancel') {
           this.cancelCurve();
         } else {
           this.deleteCurveSelection();
@@ -650,6 +702,7 @@ export class EditorSession {
 
   /** Builds the document to persist, plus a token to pass to `markSaved` once it was stored. */
   createSaveRequest(): { document: AnimationDocument; token: number } {
+    this.settlePending();
     return {
       document: toAnimationDocument(
         this.engine.width,
@@ -697,15 +750,19 @@ export class EditorSession {
     if (this.playback.isPlaying || this.activePointerId !== null) {
       return undefined;
     }
-    this.settleCurve();
+    this.settlePending();
     return this.run(operation);
   }
 
-  /** Commits the curve being drawn, so that changing frame, layer or content never leaves a loose path behind. */
-  private settleCurve(): void {
+  /**
+   * Finishes what the tools still have open, so that changing frame, layer or content never leaves
+   * a loose path or an unapplied transformation behind: the curve is completed and the selection is applied.
+   */
+  private settlePending(): void {
     if (this.curveEditor.draft !== null) {
       this.run(() => this.tools.bezier.finish());
     }
+    this.tools.select.settle();
   }
 
   private curveAction(action: (tool: Tools['bezier']) => void): void {
@@ -748,6 +805,16 @@ export class EditorSession {
     }
   }
 
+  /** The active layer when it accepts new content; reports why when it does not. */
+  private editableLayer(): Layer | null {
+    const layer = this.engine.getActiveLayer();
+    if (!layer.visible) {
+      this.reportError('The active layer is hidden. Show the layer to draw on it.');
+      return null;
+    }
+    return layer;
+  }
+
   private createToolContext(width: number, height: number): ToolContext {
     return {
       width,
@@ -785,13 +852,7 @@ export class EditorSession {
           throw error;
         }
       },
-      canEditCurves: () => {
-        const editable = this.engine.getActiveLayer().visible;
-        if (!editable) {
-          this.reportError('The active layer is hidden. Show the layer to draw on it.');
-        }
-        return editable;
-      },
+      canEditCurves: () => this.editableLayer() !== null,
       getCurves: () => this.engine.getActiveLayer().curves,
       newCurveStyle: (): CurveStyle => {
         const { brush, settings } = this.curveBrush.current;
@@ -802,6 +863,18 @@ export class EditorSession {
       toCanvasDistance: (screenPixels) => screenPixels / (this.zoom / 100),
       setCurveEditor: (state) => {
         this.curveEditor = state;
+        this.bump();
+      },
+      getActiveLayerPixels: () => {
+        const layer = this.editableLayer();
+        return layer === null ? null : { layerId: layer.id, drawing: layer.drawing };
+      },
+      getSelectionOptions: () => this.selectionOptions,
+      setSelection: (state) => {
+        if (state === null && this.selection === null) {
+          return;
+        }
+        this.selection = state;
         this.bump();
       },
       reportError: (message) => this.reportError(message)

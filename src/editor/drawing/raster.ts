@@ -31,6 +31,10 @@ export function unionRect(a: Rect, b: Rect): Rect {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+export function sameRect(a: Rect, b: Rect): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+
 /** Intersects a rectangle with `[0, width) x [0, height)`. Returns `null` when nothing remains. */
 export function clipRect(rect: Rect, width: number, height: number): Rect | null {
   const x = Math.max(0, rect.x);
@@ -103,6 +107,22 @@ export function isDrawingBlank(drawing: DrawingData): boolean {
   return true;
 }
 
+/** Source-over of the pixel at `sourceIndex` of `source` onto the one at `index` of `destination`. */
+function blendOver(destination: Uint8ClampedArray, index: number, source: Uint8ClampedArray, sourceIndex: number): void {
+  const sourceAlpha = (source[sourceIndex + 3] as number) / 255;
+  if (sourceAlpha === 0) {
+    return;
+  }
+  const destinationAlpha = (destination[index + 3] as number) / 255;
+  const alpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+  for (let channel = 0; channel < 3; channel += 1) {
+    const color = (source[sourceIndex + channel] as number) * sourceAlpha;
+    const below = (destination[index + channel] as number) * destinationAlpha * (1 - sourceAlpha);
+    destination[index + channel] = Math.round((color + below) / alpha);
+  }
+  destination[index + 3] = Math.round(alpha * 255);
+}
+
 /** Source-over of `source` onto `target` inside `rect`. Only the target changes. */
 export function compositeRegion(target: DrawingData, source: DrawingData, rect: Rect): void {
   if (source.data === null) {
@@ -112,18 +132,21 @@ export function compositeRegion(target: DrawingData, source: DrawingData, rect: 
   for (let y = rect.y; y < rect.y + rect.height; y += 1) {
     for (let x = rect.x; x < rect.x + rect.width; x += 1) {
       const index = (y * target.width + x) * 4;
-      const sourceAlpha = (source.data[index + 3] as number) / 255;
-      if (sourceAlpha === 0) {
-        continue;
-      }
-      const destinationAlpha = (destination[index + 3] as number) / 255;
-      const alpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
-      for (let channel = 0; channel < 3; channel += 1) {
-        const color = (source.data[index + channel] as number) * sourceAlpha;
-        const below = (destination[index + channel] as number) * destinationAlpha * (1 - sourceAlpha);
-        destination[index + channel] = Math.round((color + below) / alpha);
-      }
-      destination[index + 3] = Math.round(alpha * 255);
+      blendOver(destination, index, source.data, index);
+    }
+  }
+}
+
+/** Source-over of `pixels` (a `rect`-sized buffer) onto `target`. The part of `rect` outside the drawing is dropped. */
+export function compositeBlock(target: DrawingData, pixels: Uint8ClampedArray, rect: Rect): void {
+  const visible = clipRect(rect, target.width, target.height);
+  if (visible === null) {
+    return;
+  }
+  const destination = ensureData(target);
+  for (let y = visible.y; y < visible.y + visible.height; y += 1) {
+    for (let x = visible.x; x < visible.x + visible.width; x += 1) {
+      blendOver(destination, (y * target.width + x) * 4, pixels, ((y - rect.y) * rect.width + (x - rect.x)) * 4);
     }
   }
 }

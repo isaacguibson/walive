@@ -93,8 +93,8 @@ export function Editor({ session, assetsApi, projectName, sceneSelector, saving,
       if (action === null) {
         return;
       }
-      // Curve keys belong to the Bézier tool and must not steal Enter, Escape or Delete from other tools or controls.
-      if (action.startsWith('curve.') && (session.getSnapshot().state.selectedTool !== 'bezier' || isInteractiveTarget(event.target))) {
+      // These keys belong to the Bézier and Selection tools and must not steal Enter, Escape or Delete from other tools or controls.
+      if (action.startsWith('tool.') && (!['bezier', 'select'].includes(session.getSnapshot().state.selectedTool) || isInteractiveTarget(event.target))) {
         return;
       }
       if (action === 'playback.toggle' && event.repeat) {
@@ -287,6 +287,8 @@ export function Editor({ session, assetsApi, projectName, sceneSelector, saving,
               onUsePenPressureOpacityChange={(enabled) => session.setUsePenPressureOpacity(enabled)}
               onStabilizeStrokeChange={(enabled) => session.setStabilizeStroke(enabled)}
               onEraserSizeChange={(size) => session.setEraserSize(size)}
+              onSelectionKeepAspectRatioChange={(enabled) => session.setSelectionKeepAspectRatio(enabled)}
+              onSelectionResamplingChange={(resampling) => session.setSelectionResampling(resampling)}
             />
             <AssetPanel assetsApi={assetsApi} />
             <LayerPanel
