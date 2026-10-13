@@ -251,6 +251,7 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
               onColorChange={(color) => session.setColor(color)}
               onBrushSizeChange={(size) => session.setBrushSize(size)}
               onUsePenPressureChange={(enabled) => session.setUsePenPressure(enabled)}
+              onUsePenPressureOpacityChange={(enabled) => session.setUsePenPressureOpacity(enabled)}
               onStabilizeStrokeChange={(enabled) => session.setStabilizeStroke(enabled)}
               onEraserSizeChange={(size) => session.setEraserSize(size)}
             />

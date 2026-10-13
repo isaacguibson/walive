@@ -85,6 +85,7 @@ export class EditorSession {
   private color = DEFAULT_COLOR;
   private brushSize = DEFAULT_BRUSH_SIZE;
   private usePenPressure = false;
+  private usePenPressureOpacity = false;
   private stabilizeStroke = false;
   private onionEnabled = false;
   private eraserSize = DEFAULT_ERASER_SIZE;
@@ -165,6 +166,7 @@ export class EditorSession {
         color: this.color,
         brushSize: this.brushSize,
         usePenPressure: this.usePenPressure,
+        usePenPressureOpacity: this.usePenPressureOpacity,
         stabilizeStroke: this.stabilizeStroke,
         eraserSize: this.eraserSize,
         selection: this.selection
@@ -220,6 +222,14 @@ export class EditorSession {
       return;
     }
     this.usePenPressure = enabled;
+    this.bump();
+  }
+
+  setUsePenPressureOpacity(enabled: boolean): void {
+    if (this.usePenPressureOpacity === enabled) {
+      return;
+    }
+    this.usePenPressureOpacity = enabled;
     this.bump();
   }
 
@@ -635,6 +645,7 @@ export class EditorSession {
       },
       getBrushSize: () => this.brushSize,
       getUsePenPressure: () => this.usePenPressure,
+      getUsePenPressureOpacity: () => this.usePenPressureOpacity,
       getStabilizeStroke: () => this.stabilizeStroke,
       // The rope keeps a constant on-screen length, whatever the zoom.
       getStabilizeRadius: () => STABILIZE_SCREEN_RADIUS / (this.zoom / 100),

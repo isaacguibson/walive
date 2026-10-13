@@ -67,6 +67,7 @@ export interface EditorState {
   color: string;
   brushSize: number;
   usePenPressure: boolean;
+  usePenPressureOpacity: boolean;
   stabilizeStroke: boolean;
   eraserSize: number;
   /** Rectangle chosen with the Selection tool, in canvas pixels. */

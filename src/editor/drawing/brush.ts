@@ -4,6 +4,20 @@ import { clipRect, ensureData } from './raster';
 export type StrokeMode = { readonly kind: 'paint'; readonly color: Rgb } | { readonly kind: 'erase' };
 
 /**
+ * Opacity ramp of a `paint` segment, from 0 to 1 along the segment. Overlapping
+ * segments of one stroke never stack: each pixel keeps the strongest alpha the
+ * stroke gave it, composited over the pixels as they were before the stroke.
+ */
+export interface SegmentOpacity {
+  readonly start: number;
+  readonly end: number;
+  /** Strongest alpha (0-255) painted so far on each pixel of the stroke. */
+  readonly peak: Uint8Array;
+  /** Pixels of the drawing before the stroke began (`null` when it was blank). */
+  readonly original: Uint8ClampedArray | null;
+}
+
+/**
  * Draws a round-capped line segment of the given diameter (`size`, in pixels).
  * Pixels on the edge are anti-aliased with one pixel of falloff.
  *
@@ -17,14 +31,18 @@ export function paintSegment(drawing: DrawingData, from: Point, to: Point, size:
   return paintVariableSegment(drawing, from, to, size, size, mode);
 }
 
-/** Draws a round-capped segment whose diameter changes linearly with position. */
+/**
+ * Draws a round-capped segment whose diameter (and, for `paint`, optional
+ * opacity) changes linearly with position.
+ */
 export function paintVariableSegment(
   drawing: DrawingData,
   from: Point,
   to: Point,
   startSize: number,
   endSize: number,
-  mode: StrokeMode
+  mode: StrokeMode,
+  opacity?: SegmentOpacity
 ): Rect | null {
   if (mode.kind === 'erase' && drawing.data === null) {
     return null;
@@ -70,10 +88,25 @@ export function paintVariableSegment(
       if (coverage <= 0) {
         continue;
       }
-      applyCoverage(data, (y * drawing.width + x) * 4, coverage, mode);
+      const index = (y * drawing.width + x) * 4;
+      if (opacity !== undefined && mode.kind === 'paint') {
+        applyPeakAlpha(data, index, coverage * (opacity.start + (opacity.end - opacity.start) * t), mode.color, opacity);
+      } else {
+        applyCoverage(data, index, coverage, mode);
+      }
     }
   }
   return bounds;
+}
+
+function applyPeakAlpha(data: Uint8ClampedArray, index: number, alpha: number, color: Rgb, opacity: SegmentOpacity): void {
+  const pixel = index / 4;
+  const level = Math.round(alpha * 255);
+  if (level <= (opacity.peak[pixel] as number)) {
+    return;
+  }
+  opacity.peak[pixel] = level;
+  blendOver(data, index, color, alpha, opacity.original);
 }
 
 function applyCoverage(data: Uint8ClampedArray, index: number, coverage: number, mode: StrokeMode): void {
@@ -92,24 +125,35 @@ function applyCoverage(data: Uint8ClampedArray, index: number, coverage: number,
     return;
   }
 
-  const [red, green, blue] = mode.color;
-  if (coverage >= 0.999) {
+  blendOver(data, index, mode.color, coverage, data);
+}
+
+/** Writes `color` at `sourceAlpha` over the pixel found in `base` (transparent when `null`) into `data`. */
+function blendOver(
+  data: Uint8ClampedArray,
+  index: number,
+  [red, green, blue]: Rgb,
+  sourceAlpha: number,
+  base: Uint8ClampedArray | null
+): void {
+  if (sourceAlpha >= 0.999) {
     data[index] = red;
     data[index + 1] = green;
     data[index + 2] = blue;
     data[index + 3] = 255;
     return;
   }
-  const sourceAlpha = coverage;
-  const destinationAlpha = (data[index + 3] as number) / 255;
+  const destinationAlpha = base === null ? 0 : (base[index + 3] as number) / 255;
   const outAlpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
   if (outAlpha * 255 < 0.5) {
     return;
   }
-  const blend = (source: number, destination: number): number =>
-    Math.round((source * sourceAlpha + destination * destinationAlpha * (1 - sourceAlpha)) / outAlpha);
-  data[index] = blend(red, data[index] as number);
-  data[index + 1] = blend(green, data[index + 1] as number);
-  data[index + 2] = blend(blue, data[index + 2] as number);
+  const blend = (source: number, offset: number): number => {
+    const destination = base === null ? 0 : (base[index + offset] as number);
+    return Math.round((source * sourceAlpha + destination * destinationAlpha * (1 - sourceAlpha)) / outAlpha);
+  };
+  data[index] = blend(red, 0);
+  data[index + 1] = blend(green, 1);
+  data[index + 2] = blend(blue, 2);
   data[index + 3] = Math.round(outAlpha * 255);
 }

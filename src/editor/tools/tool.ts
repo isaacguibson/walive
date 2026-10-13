@@ -13,7 +13,8 @@ export interface ToolPointerEvent {
 
 /** What a tool may do to the editor. Tools never touch frames, layers or files directly. */
 export interface StrokeHandle {
-  apply(operation: (drawing: DrawingData) => Rect | null): void;
+  /** `original` holds the pixels as they were before the gesture (`null` when the drawing was blank). */
+  apply(operation: (drawing: DrawingData, original: Uint8ClampedArray | null) => Rect | null): void;
   commit(): boolean;
   cancel(): void;
 }
@@ -27,6 +28,7 @@ export interface ToolContext {
   setColor(color: Rgb): void;
   getBrushSize(): number;
   getUsePenPressure(): boolean;
+  getUsePenPressureOpacity(): boolean;
   getStabilizeStroke(): boolean;
   /** Rope length of the stroke stabilizer, in canvas pixels. */
   getStabilizeRadius(): number;

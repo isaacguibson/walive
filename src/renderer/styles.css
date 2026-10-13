@@ -764,40 +764,13 @@ label[for='keep-aspect-ratio'] {
   font-weight: 600;
 }
 
-.pressure-toggle-row {
+.brush-toggles {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 2px 0 4px;
-  font-size: 13px;
+  gap: 6px;
+  margin: 2px 0 6px;
 }
 
-.pressure-toggle {
-  display: inline-flex;
-  align-items: center;
-  width: 34px;
-  height: 20px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
-  cursor: pointer;
-}
-
-.pressure-toggle.is-enabled {
-  justify-content: flex-end;
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.pressure-toggle-knob {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-}
-
-.pressure-help {
+.brush-toggles-help {
   margin: 0 0 8px;
   font-size: 11px;
   line-height: 1.35;

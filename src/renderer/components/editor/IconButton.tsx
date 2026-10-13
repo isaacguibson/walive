@@ -3,8 +3,10 @@ import { Icon, type IconName } from './icons';
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'aria-label' | 'children'> {
   icon: IconName;
-  /** Tooltip and accessible name. Required: icon-only controls must always describe their action. */
+  /** Accessible name. Required: icon-only controls must always describe their action. */
   label: string;
+  /** Tooltip text; defaults to `label`. */
+  tooltip?: string;
   /** Toggle/selected state, exposed visually and through `aria-pressed`. */
   pressed?: boolean;
   /** Optional visible text next to the icon. */
@@ -14,7 +16,7 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { icon, label, pressed, text, variant = 'default', size, className, type = 'button', ...rest },
+  { icon, label, tooltip, pressed, text, variant = 'default', size, className, type = 'button', ...rest },
   ref
 ) {
   const classes = ['icon-button', `icon-button-${variant}`, pressed === true ? 'is-pressed' : '', className ?? '']
@@ -25,7 +27,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       ref={ref}
       type={type}
       className={classes}
-      title={label}
+      title={tooltip ?? label}
       aria-label={label}
       {...(pressed !== undefined ? { 'aria-pressed': pressed } : {})}
       {...rest}

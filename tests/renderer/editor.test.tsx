@@ -628,40 +628,55 @@ describe('tools', () => {
   });
 });
 
-describe('brush pressure options', () => {
-  it('only shows the toggle on the Brush tool and preserves the configured size', async () => {
+describe('brush toggle buttons', () => {
+  const TOGGLES = [
+    ['Use Pen Pressure', 'Use pen pressure to control brush size'],
+    ['Use Pen Pressure for Opacity', 'Use pen pressure to control stroke opacity'],
+    ['Stabilize Stroke', 'Smooth brush strokes to reduce unintended tremors']
+  ] as const;
+
+  it('replaces the switches with labelled toggle buttons that have tooltips', async () => {
+    await renderReadyEditor();
+    expect(screen.queryByRole('switch')).toBeNull();
+    for (const [name, tooltip] of TOGGLES) {
+      const toggle = screen.getByRole('button', { name });
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(toggle).toHaveAttribute('title', tooltip);
+      expect(toggle).toHaveClass('icon-button-toggle');
+    }
+  });
+
+  it('toggles each option independently and preserves the settings when switching tools', async () => {
     const { user } = await renderReadyEditor();
     const input = screen.getByRole('textbox', { name: 'Size' });
     await user.clear(input);
     await user.type(input, '12');
-    const toggle = screen.getByRole('switch', { name: 'Use Pen Pressure' });
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
-    expect(input).toBeEnabled();
 
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByRole('button', { name: 'Use Pen Pressure' }));
+    expect(screen.getByRole('button', { name: 'Use Pen Pressure' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Use Pen Pressure for Opacity' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Stabilize Stroke' })).toHaveAttribute('aria-pressed', 'false');
     expect(input).toBeDisabled();
     expect(input).toHaveValue('12');
 
-    await user.click(screen.getByRole('button', { name: 'Eraser' }));
-    expect(screen.queryByRole('switch', { name: 'Use Pen Pressure' })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Brush' }));
-    expect(screen.getByRole('switch', { name: 'Use Pen Pressure' })).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByRole('button', { name: 'Use Pen Pressure for Opacity' }));
+    await user.click(screen.getByRole('button', { name: 'Stabilize Stroke' }));
     expect(screen.getByRole('textbox', { name: 'Size' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    for (const [name] of TOGGLES) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    for (const [name] of TOGGLES) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+    }
   });
 
-  it('shows a separate Stabilize Stroke toggle on Brush and preserves the setting when switching tools', async () => {
+  it('keeps the size field editable when only pressure-sensitive opacity is enabled', async () => {
     const { user } = await renderReadyEditor();
-    const stabilize = screen.getByRole('switch', { name: 'Stabilize Stroke' });
-    expect(stabilize).toHaveAttribute('aria-checked', 'false');
-    expect(stabilize).toHaveAttribute('title', 'Smooth brush strokes to reduce unintended tremors');
-
-    await user.click(stabilize);
-    expect(stabilize).toHaveAttribute('aria-checked', 'true');
-    await user.click(screen.getByRole('button', { name: 'Eraser' }));
-    expect(screen.queryByRole('switch', { name: 'Stabilize Stroke' })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Brush' }));
-    expect(screen.getByRole('switch', { name: 'Stabilize Stroke' })).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByRole('button', { name: 'Use Pen Pressure for Opacity' }));
+    expect(screen.getByRole('textbox', { name: 'Size' })).toBeEnabled();
   });
 });
 

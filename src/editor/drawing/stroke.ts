@@ -55,12 +55,15 @@ export class StrokeSession {
     this.snapshot = drawing.data === null ? null : new Uint8ClampedArray(drawing.data);
   }
 
-  /** Runs a pixel operation on the drawing. The operation returns the rectangle it changed, if any. */
-  apply(operation: (drawing: DrawingData) => Rect | null): void {
+  /**
+   * Runs a pixel operation on the drawing. It also receives the pixels as they were before the
+   * gesture (`null` when the drawing was blank) and returns the rectangle it changed, if any.
+   */
+  apply(operation: (drawing: DrawingData, original: Uint8ClampedArray | null) => Rect | null): void {
     if (this.finished) {
       return;
     }
-    const changed = operation(this.drawing);
+    const changed = operation(this.drawing, this.snapshot);
     if (changed === null) {
       return;
     }

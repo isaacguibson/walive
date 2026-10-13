@@ -3,12 +3,14 @@ import { MAX_TOOL_SIZE, MIN_TOOL_SIZE } from '@editor/constants';
 import type { EditorState } from '@editor/model';
 import { TOOL_DEFINITIONS } from '@editor/tools';
 import { parseToolSize } from '@editor/validation';
+import { IconButton } from './IconButton';
 
 interface ToolOptionsProps {
   state: EditorState;
   onColorChange(color: string): void;
   onBrushSizeChange(size: string): boolean;
   onUsePenPressureChange(enabled: boolean): void;
+  onUsePenPressureOpacityChange(enabled: boolean): void;
   onStabilizeStrokeChange(enabled: boolean): void;
   onEraserSizeChange(size: string): boolean;
 }
@@ -65,6 +67,7 @@ export function ToolOptions({
   onColorChange,
   onBrushSizeChange,
   onUsePenPressureChange,
+  onUsePenPressureOpacityChange,
   onStabilizeStrokeChange,
   onEraserSizeChange
 }: ToolOptionsProps) {
@@ -79,36 +82,35 @@ export function ToolOptions({
       {state.selectedTool === 'brush' && (
         <>
           <SizeField id="brush-size" label="Size" value={state.brushSize} onCommit={onBrushSizeChange} disabled={state.usePenPressure} />
-          <div className="pressure-toggle-row">
-            <button
-              type="button"
-              role="switch"
-              aria-label="Use Pen Pressure"
-              aria-checked={state.usePenPressure}
-              title="Use pen pressure to control brush size"
-              className={state.usePenPressure ? 'pressure-toggle is-enabled' : 'pressure-toggle'}
+          <div className="brush-toggles">
+            <IconButton
+              icon="pressure"
+              label="Use Pen Pressure"
+              tooltip="Use pen pressure to control brush size"
+              variant="toggle"
+              pressed={state.usePenPressure}
               onClick={() => onUsePenPressureChange(!state.usePenPressure)}
-            >
-              <span className="pressure-toggle-knob" />
-            </button>
-            <span>Use Pen Pressure</span>
-          </div>
-          <p className="pressure-help muted">Requires a pressure-sensitive pen. Mouse input uses the configured size.</p>
-          <div className="pressure-toggle-row">
-            <button
-              type="button"
-              role="switch"
-              aria-label="Stabilize Stroke"
-              aria-checked={state.stabilizeStroke}
-              title="Smooth brush strokes to reduce unintended tremors"
-              className={state.stabilizeStroke ? 'pressure-toggle is-enabled' : 'pressure-toggle'}
+            />
+            <IconButton
+              icon="opacity"
+              label="Use Pen Pressure for Opacity"
+              tooltip="Use pen pressure to control stroke opacity"
+              variant="toggle"
+              pressed={state.usePenPressureOpacity}
+              onClick={() => onUsePenPressureOpacityChange(!state.usePenPressureOpacity)}
+            />
+            <IconButton
+              icon="stabilize"
+              label="Stabilize Stroke"
+              tooltip="Smooth brush strokes to reduce unintended tremors"
+              variant="toggle"
+              pressed={state.stabilizeStroke}
               onClick={() => onStabilizeStrokeChange(!state.stabilizeStroke)}
-            >
-              <span className="pressure-toggle-knob" />
-            </button>
-            <span>Stabilize Stroke</span>
+            />
           </div>
-          <p className="pressure-help muted">Smooths brush movement to reduce unintended tremors.</p>
+          <p className="brush-toggles-help muted">
+            Pressure options require a pressure-sensitive pen. Mouse input uses the configured size and full opacity.
+          </p>
         </>
       )}
       {state.selectedTool === 'eraser' && (

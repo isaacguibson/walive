@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { framesFromAnimationDocument, toAnimationDocument } from '@editor/animation/serialization';
-import { getPixel } from '@editor/drawing/raster';
+import { getPixel, isDrawingBlank } from '@editor/drawing/raster';
 import { makeSession, SIZE } from './helpers';
 
 function paintAtPressure(session: ReturnType<typeof makeSession>, pointerType: string, pressure: number): void {
@@ -173,5 +173,159 @@ describe('pressure-sensitive brush', () => {
 
     expect(getPixel(session.getSnapshot().activeLayer.drawing, 4, 5)[3]).toBe(0);
     expect(getPixel(session.getSnapshot().activeLayer.drawing, 12, 5)[3]).toBeGreaterThan(0);
+  });
+});
+
+describe('pressure-sensitive opacity', () => {
+  type Session = ReturnType<typeof makeSession>;
+  type PointerType = 'pen' | 'mouse';
+
+  function alphaAt(session: Session, x: number, y: number): number {
+    return getPixel(session.getSnapshot().activeLayer.drawing, x, y)[3];
+  }
+
+  /** Draws a horizontal stroke across the canvas with one pressure per sample. */
+  function drawStroke(session: Session, pressures: readonly number[], pointerType: PointerType = 'pen'): void {
+    session.setBrushSize(6);
+    session.setUsePenPressureOpacity(true);
+    pressures.forEach((pressure, index) => {
+      const event = { x: 2.5 + index * 3, y: 8.5, pointerId: 1, pointerType, pressure };
+      if (index === 0) {
+        session.pointerDown({ ...event, buttons: 1 });
+      } else if (index === pressures.length - 1) {
+        session.pointerUp({ ...event, buttons: 0 });
+      } else {
+        session.pointerMove({ ...event, buttons: 1 });
+      }
+    });
+  }
+
+  function dot(pressure: number, pointerType: PointerType = 'pen'): Session {
+    const session = makeSession();
+    session.setUsePenPressureOpacity(true);
+    session.setBrushSize(6);
+    session.pointerDown({ x: 8.5, y: 8.5, pointerId: 1, pointerType, pressure, buttons: 1 });
+    session.pointerUp({ x: 8.5, y: 8.5, pointerId: 1, pointerType, pressure, buttons: 0 });
+    return session;
+  }
+
+  it('toggles independently from pressure-sensitive size', () => {
+    const session = makeSession();
+    session.setUsePenPressureOpacity(true);
+    expect(session.getSnapshot().state.usePenPressureOpacity).toBe(true);
+    expect(session.getSnapshot().state.usePenPressure).toBe(false);
+    session.setUsePenPressure(true);
+    session.setUsePenPressureOpacity(false);
+    expect(session.getSnapshot().state.usePenPressure).toBe(true);
+    expect(session.getSnapshot().state.usePenPressureOpacity).toBe(false);
+  });
+
+  it('makes higher pressure more opaque, within a valid and visible range', () => {
+    const [low, medium, high] = [0.2, 0.6, 1].map((pressure) => alphaAt(dot(pressure), 8, 8));
+    expect(low).toBeGreaterThan(0);
+    expect(medium).toBeGreaterThan(low as number);
+    expect(high).toBeGreaterThan(medium as number);
+    expect(high).toBe(255);
+    expect(alphaAt(dot(0), 8, 8)).toBeGreaterThan(0);
+  });
+
+  it('keeps the configured color and size', () => {
+    const session = dot(0.5);
+    const [red, green, blue] = getPixel(session.getSnapshot().activeLayer.drawing, 8, 8);
+    expect([red, green, blue]).toEqual([0, 0, 0]);
+    expect(session.getSnapshot().state.brushSize).toBe(6);
+    expect(alphaAt(session, 8, 4)).toBe(0);
+  });
+
+  it('follows pressure changes along a stroke without stacking overlapping segments', () => {
+    const session = makeSession();
+    drawStroke(session, [0.2, 0.2, 1, 1]);
+    const start = alphaAt(session, 3, 8);
+    const end = alphaAt(session, 10, 8);
+    expect(end).toBeGreaterThan(start);
+
+    const reference = dot(0.2);
+    expect(start).toBe(alphaAt(reference, 8, 8));
+  });
+
+  it('does not darken a stroke that overlaps itself', () => {
+    const session = makeSession();
+    session.setBrushSize(6);
+    session.setUsePenPressureOpacity(true);
+    const pen = { pointerId: 1, pointerType: 'pen', pressure: 0.5 };
+    session.pointerDown({ ...pen, x: 4.5, y: 8.5, buttons: 1 });
+    session.pointerMove({ ...pen, x: 11.5, y: 8.5, buttons: 1 });
+    session.pointerMove({ ...pen, x: 4.5, y: 8.5, buttons: 1 });
+    session.pointerUp({ ...pen, x: 4.5, y: 8.5, buttons: 0 });
+    expect(alphaAt(session, 8, 8)).toBe(alphaAt(dot(0.5), 8, 8));
+  });
+
+  it('composites over existing pixels instead of replacing them', () => {
+    const session = makeSession();
+    session.setBrushSize(6);
+    session.pointerDown({ x: 8.5, y: 8.5, pointerId: 1, pointerType: 'mouse', buttons: 1 });
+    session.pointerUp({ x: 8.5, y: 8.5, pointerId: 1, pointerType: 'mouse', buttons: 0 });
+    session.setColor('#ffffff');
+    session.setUsePenPressureOpacity(true);
+    session.pointerDown({ x: 8.5, y: 8.5, pointerId: 2, pointerType: 'pen', pressure: 0.5, buttons: 1 });
+    session.pointerUp({ x: 8.5, y: 8.5, pointerId: 2, pointerType: 'pen', pressure: 0.5, buttons: 0 });
+    const [red, , , alpha] = getPixel(session.getSnapshot().activeLayer.drawing, 8, 8);
+    expect(alpha).toBe(255);
+    expect(red).toBeGreaterThan(0);
+    expect(red).toBeLessThan(255);
+  });
+
+  it('falls back to full opacity for mouse, missing, and invalid pressure', () => {
+    const missing = makeSession();
+    missing.setBrushSize(6);
+    missing.setUsePenPressureOpacity(true);
+    missing.pointerDown({ x: 8.5, y: 8.5, pointerId: 1, pointerType: 'pen', buttons: 1 });
+    missing.pointerUp({ x: 8.5, y: 8.5, pointerId: 1, pointerType: 'pen', buttons: 0 });
+
+    for (const session of [dot(0.1, 'mouse'), missing, dot(3), dot(Number.NaN)]) {
+      expect(alphaAt(session, 8, 8)).toBe(255);
+    }
+  });
+
+  it('restores the existing opacity when disabled and leaves finished strokes untouched', () => {
+    const session = dot(0.2);
+    const before = alphaAt(session, 8, 8);
+    session.setUsePenPressureOpacity(false);
+    expect(alphaAt(session, 8, 8)).toBe(before);
+
+    session.pointerDown({ x: 13.5, y: 3.5, pointerId: 2, pointerType: 'pen', pressure: 0.2, buttons: 1 });
+    session.pointerUp({ x: 13.5, y: 3.5, pointerId: 2, pointerType: 'pen', pressure: 0.2, buttons: 0 });
+    expect(alphaAt(session, 13, 3)).toBe(255);
+  });
+
+  it('combines with pressure-sensitive size and stabilization', () => {
+    const session = makeSession();
+    session.setUsePenPressure(true);
+    session.setStabilizeStroke(true);
+    drawStroke(session, [0.3, 0.5, 0.8, 1, 1]);
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(false);
+    session.undo();
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(true);
+  });
+
+  it('preserves the opacity through undo/redo, saving, reopening and duplication', () => {
+    const session = dot(0.4);
+    const expected = alphaAt(session, 8, 8);
+    expect(expected).toBeGreaterThan(0);
+    expect(expected).toBeLessThan(255);
+
+    session.undo();
+    expect(alphaAt(session, 8, 8)).toBe(0);
+    session.redo();
+    expect(alphaAt(session, 8, 8)).toBe(expected);
+
+    const { document } = session.createSaveRequest();
+    const reopened = framesFromAnimationDocument(document, SIZE, SIZE);
+    expect(getPixel(reopened[0]!.layers[0]!.drawing, 8, 8)[3]).toBe(expected);
+
+    const source = session.getSnapshot().activeFrame;
+    session.duplicateFrame(source.id);
+    expect(session.getSnapshot().activeFrame.id).not.toBe(source.id);
+    expect(alphaAt(session, 8, 8)).toBe(expected);
   });
 });

@@ -30,3 +30,6 @@ export const DEFAULT_LAYER_NAME = 'Layer';
 
 /** Length of the stroke stabilizer rope, in screen pixels (independent of zoom). */
 export const STABILIZE_SCREEN_RADIUS = 15;
+
+/** Opacity of a pen stroke at zero pressure when pressure controls opacity; full pressure is fully opaque. */
+export const MIN_PRESSURE_OPACITY = 0.1;
