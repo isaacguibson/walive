@@ -9,6 +9,11 @@
 
 export type ToolType = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'selection';
 
+export type BrushId = 'basic' | 'pencil' | 'charcoal' | 'chalk' | 'particle';
+
+/** Brush-specific options by key. Every brush defines its own keys (see `BrushDefinition.options`). */
+export type BrushSettings = Readonly<Record<string, number>>;
+
 export interface Point {
   readonly x: number;
   readonly y: number;
@@ -66,6 +71,11 @@ export interface EditorState {
   /** Active drawing color as `#rrggbb`. Shared by the tools that use a color. */
   color: string;
   brushSize: number;
+  /** Base opacity of brush strokes, in percent (0-100). */
+  brushOpacity: number;
+  brushType: BrushId;
+  /** Settings of the selected brush type; every type keeps its own for the whole session. */
+  brushSettings: BrushSettings;
   usePenPressure: boolean;
   usePenPressureOpacity: boolean;
   stabilizeStroke: boolean;

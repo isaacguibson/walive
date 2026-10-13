@@ -1,7 +1,9 @@
 import { AnimationEngine } from './animation/animationEngine';
 import { applicationFrameClipboard, type FrameClipboardStore } from './animation/clipboard';
 import { toAnimationDocument } from './animation/serialization';
+import { defaultBrushSettings, findBrush, sanitizeBrushSettings } from './brushes/registry';
 import {
+  DEFAULT_BRUSH_OPACITY,
   DEFAULT_BRUSH_SIZE,
   DEFAULT_COLOR,
   DEFAULT_ERASER_SIZE,
@@ -13,7 +15,7 @@ import {
 } from './constants';
 import { compositePixel } from './drawing/raster';
 import { EditorError } from './errors';
-import type { EditorState, Frame, Layer, Rect, ToolType } from './model';
+import type { BrushId, EditorState, Frame, Layer, Rect, ToolType } from './model';
 import { PlaybackController, browserClock, type PlaybackClock } from './playback/playbackController';
 import type { ShortcutAction } from './shortcuts/shortcuts';
 import { createTools } from './tools';
@@ -31,6 +33,8 @@ export interface EditorSessionOptions {
   clipboard?: FrameClipboardStore;
   clock?: PlaybackClock;
   idGenerator?: () => string;
+  /** Source of the seeds of randomized brushes; random by default. Tests inject a fixed one. */
+  strokeSeed?: () => number;
 }
 
 /** Immutable view of the editor for the UI. A new object is produced whenever anything it shows changes. */
@@ -84,6 +88,11 @@ export class EditorSession {
   private selectedTool: ToolType = 'brush';
   private color = DEFAULT_COLOR;
   private brushSize = DEFAULT_BRUSH_SIZE;
+  private brushOpacity = DEFAULT_BRUSH_OPACITY;
+  private brushType: BrushId = 'basic';
+  /** Every brush type keeps its own settings while the session lasts. */
+  private readonly brushSettings = defaultBrushSettings();
+  private readonly strokeSeed: () => number;
   private usePenPressure = false;
   private usePenPressureOpacity = false;
   private stabilizeStroke = false;
@@ -101,6 +110,7 @@ export class EditorSession {
       throw new EditorError('CANVAS_UNSUPPORTED', "This project's canvas size is not supported by the editor.");
     }
     this.clipboard = options.clipboard ?? applicationFrameClipboard;
+    this.strokeSeed = options.strokeSeed ?? (() => Math.floor(Math.random() * 0x1_0000_0000));
     this.engine = new AnimationEngine({
       width: options.width,
       height: options.height,
@@ -165,6 +175,9 @@ export class EditorSession {
         isPlaying: this.playback.isPlaying,
         color: this.color,
         brushSize: this.brushSize,
+        brushOpacity: this.brushOpacity,
+        brushType: this.brushType,
+        brushSettings: this.brushSettings[this.brushType],
         usePenPressure: this.usePenPressure,
         usePenPressureOpacity: this.usePenPressureOpacity,
         stabilizeStroke: this.stabilizeStroke,
@@ -215,6 +228,32 @@ export class EditorSession {
     this.brushSize = size;
     this.bump();
     return true;
+  }
+
+  /** Selects a brush type; unknown types fall back to the Basic Brush. Existing strokes are not affected. */
+  setBrushType(id: string): void {
+    const brush = findBrush(id);
+    if (brush.id === this.brushType) {
+      return;
+    }
+    this.brushType = brush.id;
+    this.bump();
+  }
+
+  /** Changes one option of the selected brush type; invalid values are clamped or replaced by the default. */
+  setBrushSetting(key: string, value: number): void {
+    const brush = findBrush(this.brushType);
+    this.brushSettings[brush.id] = sanitizeBrushSettings(brush, { ...this.brushSettings[brush.id], [key]: value });
+    this.bump();
+  }
+
+  /** Sets the base opacity of brush strokes, in percent; values are rounded and clamped to 0-100. */
+  setBrushOpacity(percent: number): void {
+    if (!Number.isFinite(percent)) {
+      return;
+    }
+    this.brushOpacity = Math.min(100, Math.max(0, Math.round(percent)));
+    this.bump();
   }
 
   setUsePenPressure(enabled: boolean): void {
@@ -644,6 +683,9 @@ export class EditorSession {
         this.setColor(toHexColor(color));
       },
       getBrushSize: () => this.brushSize,
+      getBrushOpacity: () => this.brushOpacity / 100,
+      getBrush: () => ({ brush: findBrush(this.brushType), settings: this.brushSettings[this.brushType] }),
+      nextStrokeSeed: this.strokeSeed,
       getUsePenPressure: () => this.usePenPressure,
       getUsePenPressureOpacity: () => this.usePenPressureOpacity,
       getStabilizeStroke: () => this.stabilizeStroke,

@@ -10,6 +10,8 @@ export const MAX_ZOOM = 800;
 
 /** Default tool sizes in pixels. Change here to adjust the initial drawing feel. */
 export const DEFAULT_BRUSH_SIZE = 12;
+/** Default base opacity of brush strokes, in percent. */
+export const DEFAULT_BRUSH_OPACITY = 100;
 export const DEFAULT_ERASER_SIZE = 20;
 export const MIN_TOOL_SIZE = 1;
 export const MAX_TOOL_SIZE = 500;

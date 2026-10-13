@@ -1,29 +1,46 @@
+import type { BrushCanvas, BrushSample, BrushStroke } from '../brushes/brush';
 import { MIN_PRESSURE_OPACITY } from '../constants';
-import { paintVariableSegment, type StrokeMode } from '../drawing/brush';
+import { paintVariableSegment } from '../drawing/brush';
 import { StrokeStabilizer } from '../drawing/stabilizer';
-import type { Point, ToolType } from '../model';
+import type { ToolType } from '../model';
 import { toPoint, type EditorTool, type StrokeHandle, type ToolContext, type ToolPointerEvent } from './tool';
+
+/** Settings of one stroke, read when it starts so that they stay fixed until it ends. */
+interface StrokeDynamics {
+  /** Configured diameter in canvas pixels. */
+  size: number;
+  /** Base opacity from 0 to 1. */
+  opacity: number;
+  pressureSize: boolean;
+  pressureOpacity: boolean;
+  stabilize: boolean;
+}
 
 interface PaintToolOptions {
   id: ToolType;
   name: string;
   /** Label of the undo entry. */
   label: string;
-  mode(): StrokeMode;
-  size(): number;
+  dynamics(): StrokeDynamics;
+  /** `variableOpacity` tells whether the opacity of the samples can differ from fully opaque. */
+  startStroke(canvas: BrushCanvas, variableOpacity: boolean): BrushStroke;
 }
 
-/** Shared behavior of the Brush and the Eraser: continuous strokes on the active layer. */
+interface ActiveStroke {
+  handle: StrokeHandle;
+  painter: BrushStroke;
+  dynamics: StrokeDynamics;
+  stabilizer: StrokeStabilizer | null;
+}
+
+/**
+ * Shared input handling of the Brush and the Eraser: continuous strokes on the active
+ * layer. It resolves stabilization and pen pressure; drawing is up to the stroke renderer.
+ */
 export class PaintTool implements EditorTool {
   readonly id: ToolType;
   readonly name: string;
-  private stroke: StrokeHandle | null = null;
-  private last: Point | null = null;
-  private lastSize = 1;
-  private lastOpacity = 1;
-  /** Per-stroke alpha buffer; only present while a stroke uses pressure-sensitive opacity. */
-  private peakAlpha: Uint8Array | null = null;
-  private stabilizer: StrokeStabilizer | null = null;
+  private active: ActiveStroke | null = null;
 
   constructor(
     private readonly context: ToolContext,
@@ -41,33 +58,24 @@ export class PaintTool implements EditorTool {
 
   pointerDown(event: ToolPointerEvent): void {
     this.finish();
-    this.stroke = this.context.beginStroke(this.options.label);
-    if (this.stroke === null) {
+    const handle = this.context.beginStroke(this.options.label);
+    if (handle === null) {
       return;
     }
-    this.stabilizer =
-      this.id === 'brush' && this.context.getStabilizeStroke() ? new StrokeStabilizer(this.context.getStabilizeRadius()) : null;
-    this.last = this.stabilizer?.push(toPoint(event)) ?? toPoint(event);
-    this.peakAlpha =
-      this.id === 'brush' && this.context.getUsePenPressureOpacity()
-        ? new Uint8Array(this.context.width * this.context.height)
-        : null;
-    this.lastSize = this.effectiveSize(event);
-    this.lastOpacity = this.effectiveOpacity(event);
-    this.paint(this.last, this.last, this.lastSize, this.lastSize, this.lastOpacity, this.lastOpacity);
+    const dynamics = this.options.dynamics();
+    this.active = {
+      handle,
+      dynamics,
+      stabilizer: dynamics.stabilize ? new StrokeStabilizer(this.context.getStabilizeRadius()) : null,
+      painter: this.options.startStroke(handle, dynamics.pressureOpacity || dynamics.opacity < 1)
+    };
+    this.active.painter.begin(this.sample(event, this.active));
   }
 
   pointerMove(event: ToolPointerEvent): void {
-    if (this.stroke === null || this.last === null) {
-      return;
+    if (this.active !== null) {
+      this.active.painter.extend(this.sample(event, this.active));
     }
-    const next = this.stabilizer?.push(toPoint(event)) ?? toPoint(event);
-    const nextSize = this.effectiveSize(event);
-    const nextOpacity = this.effectiveOpacity(event);
-    this.paint(this.last, next, this.lastSize, nextSize, this.lastOpacity, nextOpacity);
-    this.last = next;
-    this.lastSize = nextSize;
-    this.lastOpacity = nextOpacity;
   }
 
   pointerUp(event: ToolPointerEvent): void {
@@ -80,55 +88,62 @@ export class PaintTool implements EditorTool {
     this.finish();
   }
 
-  private paint(from: Point, to: Point, startSize: number, endSize: number, startOpacity: number, endOpacity: number): void {
-    const { mode, size } = this.options;
-    const peak = this.peakAlpha;
-    this.stroke?.apply((drawing, original) =>
-      paintVariableSegment(
-        drawing,
-        from,
-        to,
-        startSize || size(),
-        endSize || size(),
-        mode(),
-        peak === null ? undefined : { start: startOpacity, end: endOpacity, peak, original }
-      )
-    );
-  }
-
-  /** Pen pressure in `[0, 1]`, or `null` for mouse input and missing or invalid values. */
-  private penPressure(event: ToolPointerEvent): number | null {
-    const pressure = event.pressure;
-    if (event.pointerType !== 'pen' || pressure === undefined || !Number.isFinite(pressure) || pressure < 0 || pressure > 1) {
-      return null;
-    }
-    return pressure;
-  }
-
-  private effectiveSize(event: ToolPointerEvent): number {
-    const configuredSize = this.options.size();
-    if (this.id !== 'brush' || !this.context.getUsePenPressure()) {
-      return configuredSize;
-    }
-    const pressure = this.penPressure(event);
-    return pressure === null ? configuredSize : Math.max(1, configuredSize * pressure);
-  }
-
-  /** Fully opaque unless the stroke uses pressure-sensitive opacity and the event carries pen pressure. */
-  private effectiveOpacity(event: ToolPointerEvent): number {
-    const pressure = this.peakAlpha === null ? null : this.penPressure(event);
-    return pressure === null ? 1 : MIN_PRESSURE_OPACITY + pressure * (1 - MIN_PRESSURE_OPACITY);
+  private sample(event: ToolPointerEvent, { dynamics, stabilizer }: ActiveStroke): BrushSample {
+    const point = stabilizer?.push(toPoint(event)) ?? toPoint(event);
+    const pressure = penPressure(event);
+    return {
+      ...point,
+      size: dynamics.pressureSize && pressure !== null ? Math.max(1, dynamics.size * pressure) : dynamics.size,
+      opacity:
+        dynamics.pressureOpacity && pressure !== null
+          ? dynamics.opacity * (MIN_PRESSURE_OPACITY + pressure * (1 - MIN_PRESSURE_OPACITY))
+          : dynamics.opacity
+    };
   }
 
   private finish(): void {
-    this.stroke?.commit();
-    this.stroke = null;
+    if (this.active === null) {
+      return;
+    }
+    const { painter, handle, stabilizer } = this.active;
+    painter.end();
+    handle.commit();
+    stabilizer?.reset();
+    this.active = null;
+  }
+}
+
+/** Pen pressure in `[0, 1]`, or `null` for mouse input and missing or invalid values. */
+function penPressure(event: ToolPointerEvent): number | null {
+  const pressure = event.pressure;
+  if (event.pointerType !== 'pen' || pressure === undefined || !Number.isFinite(pressure) || pressure < 0 || pressure > 1) {
+    return null;
+  }
+  return pressure;
+}
+
+/** Removes opacity along the path with round-capped segments. */
+class EraseStroke implements BrushStroke {
+  private last: BrushSample | null = null;
+
+  constructor(private readonly canvas: BrushCanvas) {}
+
+  begin(sample: BrushSample): void {
+    this.last = sample;
+    this.erase(sample, sample);
+  }
+
+  extend(sample: BrushSample): void {
+    this.erase(this.last ?? sample, sample);
+    this.last = sample;
+  }
+
+  end(): void {
     this.last = null;
-    this.lastSize = 1;
-    this.lastOpacity = 1;
-    this.peakAlpha = null;
-    this.stabilizer?.reset();
-    this.stabilizer = null;
+  }
+
+  private erase(from: BrushSample, to: BrushSample): void {
+    this.canvas.apply((drawing) => paintVariableSegment(drawing, from, to, from.size, to.size, { kind: 'erase' }));
   }
 }
 
@@ -137,8 +152,22 @@ export function createBrushTool(context: ToolContext): PaintTool {
     id: 'brush',
     name: 'Brush',
     label: 'Brush stroke',
-    mode: () => ({ kind: 'paint', color: context.getColor() }),
-    size: () => context.getBrushSize()
+    dynamics: () => ({
+      size: context.getBrushSize(),
+      opacity: context.getBrushOpacity(),
+      pressureSize: context.getUsePenPressure(),
+      pressureOpacity: context.getUsePenPressureOpacity(),
+      stabilize: context.getStabilizeStroke()
+    }),
+    startStroke: (canvas, variableOpacity) => {
+      const { brush, settings } = context.getBrush();
+      return brush.startStroke(settings, {
+        canvas,
+        color: context.getColor(),
+        seed: context.nextStrokeSeed(),
+        variableOpacity
+      });
+    }
   });
 }
 
@@ -147,7 +176,13 @@ export function createEraserTool(context: ToolContext): PaintTool {
     id: 'eraser',
     name: 'Eraser',
     label: 'Erase',
-    mode: () => ({ kind: 'erase' }),
-    size: () => context.getEraserSize()
+    dynamics: () => ({
+      size: context.getEraserSize(),
+      opacity: 1,
+      pressureSize: false,
+      pressureOpacity: false,
+      stabilize: false
+    }),
+    startStroke: (canvas) => new EraseStroke(canvas)
   });
 }

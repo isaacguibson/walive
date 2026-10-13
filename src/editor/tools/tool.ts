@@ -1,4 +1,5 @@
-import type { DrawingData, Point, Rect, Rgb, ToolType } from '../model';
+import type { BrushDefinition } from '../brushes/brush';
+import type { BrushSettings, DrawingData, Point, Rect, Rgb, ToolType } from '../model';
 
 /** Pointer position already converted to logical canvas pixels (HU_00004 §33, §55). */
 export interface ToolPointerEvent {
@@ -27,6 +28,12 @@ export interface ToolContext {
   getColor(): Rgb;
   setColor(color: Rgb): void;
   getBrushSize(): number;
+  /** Base opacity of brush strokes, from 0 to 1. */
+  getBrushOpacity(): number;
+  /** The selected brush type with its current settings. */
+  getBrush(): { readonly brush: BrushDefinition; readonly settings: BrushSettings };
+  /** Seed for the randomized marks of the next stroke. */
+  nextStrokeSeed(): number;
   getUsePenPressure(): boolean;
   getUsePenPressureOpacity(): boolean;
   getStabilizeStroke(): boolean;

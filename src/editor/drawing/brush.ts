@@ -4,13 +4,21 @@ import { clipRect, ensureData } from './raster';
 export type StrokeMode = { readonly kind: 'paint'; readonly color: Rgb } | { readonly kind: 'erase' };
 
 /**
- * Opacity ramp of a `paint` segment, from 0 to 1 along the segment. Overlapping
- * segments of one stroke never stack: each pixel keeps the strongest alpha the
- * stroke gave it, composited over the pixels as they were before the stroke.
+ * Modulates the coverage of a pixel (canvas coordinates). `edge` is the distance to the
+ * segment's centerline relative to its reach: 0 on the centerline, 1 on the outer edge.
  */
-export interface SegmentOpacity {
+export type Grain = (x: number, y: number, coverage: number, edge: number) => number;
+
+/**
+ * Styling of a `paint` segment: an opacity ramp from `start` to `end` (0 to 1) and an
+ * optional grain. Overlapping segments of one stroke never stack: each pixel keeps the
+ * strongest alpha the stroke gave it, composited over the pixels as they were before
+ * the stroke.
+ */
+export interface SegmentStyle {
   readonly start: number;
   readonly end: number;
+  readonly grain?: Grain | undefined;
   /** Strongest alpha (0-255) painted so far on each pixel of the stroke. */
   readonly peak: Uint8Array;
   /** Pixels of the drawing before the stroke began (`null` when it was blank). */
@@ -32,7 +40,7 @@ export function paintSegment(drawing: DrawingData, from: Point, to: Point, size:
 }
 
 /**
- * Draws a round-capped segment whose diameter (and, for `paint`, optional
+ * Draws a round-capped segment whose diameter (and, for `paint` with a `style`,
  * opacity) changes linearly with position.
  */
 export function paintVariableSegment(
@@ -42,7 +50,7 @@ export function paintVariableSegment(
   startSize: number,
   endSize: number,
   mode: StrokeMode,
-  opacity?: SegmentOpacity
+  style?: SegmentStyle
 ): Rect | null {
   if (mode.kind === 'erase' && drawing.data === null) {
     return null;
@@ -84,13 +92,15 @@ export function paintVariableSegment(
       if (distanceSquared > reachSquared) {
         continue;
       }
-      const coverage = Math.min(1, Math.max(0, reach - Math.sqrt(distanceSquared)));
+      const distance = Math.sqrt(distanceSquared);
+      const coverage = Math.min(1, Math.max(0, reach - distance));
       if (coverage <= 0) {
         continue;
       }
       const index = (y * drawing.width + x) * 4;
-      if (opacity !== undefined && mode.kind === 'paint') {
-        applyPeakAlpha(data, index, coverage * (opacity.start + (opacity.end - opacity.start) * t), mode.color, opacity);
+      if (style !== undefined && mode.kind === 'paint') {
+        const shaped = style.grain?.(x, y, coverage, distance / reach) ?? coverage;
+        applyPeakAlpha(data, index, shaped * (style.start + (style.end - style.start) * t), mode.color, style);
       } else {
         applyCoverage(data, index, coverage, mode);
       }
@@ -99,14 +109,14 @@ export function paintVariableSegment(
   return bounds;
 }
 
-function applyPeakAlpha(data: Uint8ClampedArray, index: number, alpha: number, color: Rgb, opacity: SegmentOpacity): void {
+function applyPeakAlpha(data: Uint8ClampedArray, index: number, alpha: number, color: Rgb, style: SegmentStyle): void {
   const pixel = index / 4;
   const level = Math.round(alpha * 255);
-  if (level <= (opacity.peak[pixel] as number)) {
+  if (level <= (style.peak[pixel] as number)) {
     return;
   }
-  opacity.peak[pixel] = level;
-  blendOver(data, index, color, alpha, opacity.original);
+  style.peak[pixel] = level;
+  blendOver(data, index, color, alpha, style.original);
 }
 
 function applyCoverage(data: Uint8ClampedArray, index: number, coverage: number, mode: StrokeMode): void {

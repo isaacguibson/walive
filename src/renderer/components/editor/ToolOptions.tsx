@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BRUSHES, findBrush } from '@editor/brushes/registry';
 import { MAX_TOOL_SIZE, MIN_TOOL_SIZE } from '@editor/constants';
 import type { EditorState } from '@editor/model';
 import { TOOL_DEFINITIONS } from '@editor/tools';
@@ -8,7 +9,10 @@ import { IconButton } from './IconButton';
 interface ToolOptionsProps {
   state: EditorState;
   onColorChange(color: string): void;
+  onBrushTypeChange(id: string): void;
+  onBrushSettingChange(key: string, value: number): void;
   onBrushSizeChange(size: string): boolean;
+  onBrushOpacityChange(percent: number): void;
   onUsePenPressureChange(enabled: boolean): void;
   onUsePenPressureOpacityChange(enabled: boolean): void;
   onStabilizeStrokeChange(enabled: boolean): void;
@@ -61,18 +65,59 @@ function SizeField({ id, label, value, onCommit, disabled = false }: SizeFieldPr
   );
 }
 
+interface RangeFieldProps {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  onChange(value: number): void;
+}
+
+/** Slider with its current value; the range is enforced by the input itself. */
+function RangeField({ id, label, value, min, max, unit, onChange }: RangeFieldProps) {
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <div className="field-row field-inline">
+        <input id={id} type="range" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+        <span className="unit range-value">
+          {value}
+          {unit}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Upper right section: properties of the selected tool. */
 export function ToolOptions({
   state,
   onColorChange,
+  onBrushTypeChange,
+  onBrushSettingChange,
   onBrushSizeChange,
+  onBrushOpacityChange,
   onUsePenPressureChange,
   onUsePenPressureOpacityChange,
   onStabilizeStrokeChange,
   onEraserSizeChange
 }: ToolOptionsProps) {
   const tool = TOOL_DEFINITIONS.find((candidate) => candidate.id === state.selectedTool);
-  const usesColor = state.selectedTool === 'brush' || state.selectedTool === 'fill';
+  const brush = findBrush(state.brushType);
+  const colorField = (
+    <div className="field">
+      <label htmlFor="tool-color">Color</label>
+      <input
+        id="tool-color"
+        className="color-input"
+        type="color"
+        value={state.color}
+        onChange={(event) => onColorChange(event.target.value)}
+      />
+    </div>
+  );
 
   return (
     <section className="tool-options" aria-label="Tool Options">
@@ -81,7 +126,18 @@ export function ToolOptions({
 
       {state.selectedTool === 'brush' && (
         <>
+          <div className="field">
+            <label htmlFor="brush-type">Brush Type</label>
+            <select id="brush-type" value={state.brushType} onChange={(event) => onBrushTypeChange(event.target.value)}>
+              {BRUSHES.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <SizeField id="brush-size" label="Size" value={state.brushSize} onCommit={onBrushSizeChange} disabled={state.usePenPressure} />
+          <RangeField id="brush-opacity" label="Opacity" value={state.brushOpacity} min={0} max={100} unit="%" onChange={onBrushOpacityChange} />
           <div className="brush-toggles">
             <IconButton
               icon="pressure"
@@ -111,24 +167,30 @@ export function ToolOptions({
           <p className="brush-toggles-help muted">
             Pressure options require a pressure-sensitive pen. Mouse input uses the configured size and full opacity.
           </p>
+          {colorField}
+          {brush.options.length > 0 && (
+            <div role="group" aria-label={`${brush.name} Settings`}>
+              {brush.options.map((option) => (
+                <RangeField
+                  key={option.key}
+                  id={`brush-option-${option.key}`}
+                  label={option.label}
+                  value={state.brushSettings[option.key] ?? option.min}
+                  min={option.min}
+                  max={option.max}
+                  unit={option.unit}
+                  onChange={(value) => onBrushSettingChange(option.key, value)}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
       {state.selectedTool === 'eraser' && (
         <SizeField id="eraser-size" label="Size" value={state.eraserSize} onCommit={onEraserSizeChange} />
       )}
 
-      {usesColor && (
-        <div className="field">
-          <label htmlFor="tool-color">Color</label>
-          <input
-            id="tool-color"
-            className="color-input"
-            type="color"
-            value={state.color}
-            onChange={(event) => onColorChange(event.target.value)}
-          />
-        </div>
-      )}
+      {state.selectedTool === 'fill' && colorField}
 
       {state.selectedTool === 'eyedropper' && (
         <>

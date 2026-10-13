@@ -250,6 +250,9 @@ export function Editor({ session, assetsApi, projectName, saving, closing, onSav
               state={state}
               onColorChange={(color) => session.setColor(color)}
               onBrushSizeChange={(size) => session.setBrushSize(size)}
+              onBrushTypeChange={(id) => session.setBrushType(id)}
+              onBrushSettingChange={(key, value) => session.setBrushSetting(key, value)}
+              onBrushOpacityChange={(percent) => session.setBrushOpacity(percent)}
               onUsePenPressureChange={(enabled) => session.setUsePenPressure(enabled)}
               onUsePenPressureOpacityChange={(enabled) => session.setUsePenPressureOpacity(enabled)}
               onStabilizeStrokeChange={(enabled) => session.setStabilizeStroke(enabled)}

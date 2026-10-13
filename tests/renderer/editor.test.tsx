@@ -680,6 +680,74 @@ describe('brush toggle buttons', () => {
   });
 });
 
+describe('brush types', () => {
+  const BRUSH_NAMES = ['Basic Brush', 'Textured Pencil', 'Charcoal Brush', 'Chalk Brush', 'Particle Brush'];
+
+  it('lists the brush types and selects the Basic Brush by default', async () => {
+    await renderReadyEditor();
+    const select = screen.getByRole('combobox', { name: 'Brush Type' });
+    expect(select).toHaveValue('basic');
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(BRUSH_NAMES);
+    expect(screen.queryByRole('group', { name: /Settings$/ })).toBeNull();
+    expect(screen.getByRole('slider', { name: 'Opacity' })).toHaveValue('100');
+  });
+
+  it('shows the settings of the selected brush and remembers them per brush', async () => {
+    const { user } = await renderReadyEditor();
+    const select = screen.getByRole('combobox', { name: 'Brush Type' });
+
+    await user.selectOptions(select, 'chalk');
+    const chalk = screen.getByRole('group', { name: 'Chalk Brush Settings' });
+    expect(within(chalk).getAllByRole('slider').map((slider) => slider.id)).toEqual([
+      'brush-option-grainSize',
+      'brush-option-textureIntensity',
+      'brush-option-coverage'
+    ]);
+    fireEvent.change(within(chalk).getByRole('slider', { name: 'Coverage' }), { target: { value: '25' } });
+    expect(within(chalk).getByRole('slider', { name: 'Coverage' })).toHaveValue('25');
+
+    await user.selectOptions(select, 'particle');
+    expect(screen.getByRole('group', { name: 'Particle Brush Settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Coverage' })).toBeNull();
+
+    await user.selectOptions(select, 'chalk');
+    expect(screen.getByRole('slider', { name: 'Coverage' })).toHaveValue('25');
+
+    await user.selectOptions(select, 'basic');
+    expect(screen.queryByRole('group', { name: /Settings$/ })).toBeNull();
+  });
+
+  it('keeps size, opacity, pressure, stabilization and color options available for every brush', async () => {
+    const { user } = await renderReadyEditor();
+    for (const id of ['pencil', 'charcoal', 'chalk', 'particle']) {
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), id);
+      expect(screen.getByRole('textbox', { name: 'Size' })).toBeInTheDocument();
+      expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Use Pen Pressure' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Stabilize Stroke' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Color')).toBeInTheDocument();
+    }
+  });
+
+  it('shows the brush options only for the Brush tool', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Eraser' }));
+    expect(screen.queryByRole('combobox', { name: 'Brush Type' })).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Opacity' })).toBeNull();
+  });
+
+  it('paints with the selected brush and opacity', async () => {
+    const { user, animationApi } = await renderReadyEditor();
+    fireEvent.change(screen.getByRole('slider', { name: 'Opacity' }), { target: { value: '50' } });
+    expect(screen.getByText('50%')).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), 'pencil');
+    stroke([3, 8], [12, 8]);
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalled());
+    expect(savedDocument(animationApi).frames[0]?.layers[0]?.pixels).toBeTruthy();
+  });
+});
+
 describe('frame management', () => {
   it('adds a frame after the active one and selects it', async () => {
     const { user } = await renderReadyEditor();
