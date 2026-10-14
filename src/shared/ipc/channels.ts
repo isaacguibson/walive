@@ -1,4 +1,18 @@
 import type { AnimationDocument } from '../types/animation';
+import type {
+  AIPreferences,
+  AIState,
+  AttachmentPickResult,
+  Conversation,
+  ConversationSummary,
+  McpCallResult,
+  McpServerStatus,
+  McpToolInfo,
+  SaveMcpServerInput,
+  SaveProviderInput,
+  TurnRequest,
+  TurnResult
+} from '../ai/types';
 import type { AssetImportResult, ProjectAsset } from '../types/assets';
 import type {
   DestinationQuery,
@@ -33,12 +47,37 @@ export const IPC_CHANNELS = {
   exportDestination: 'export:destination',
   exportStart: 'export:start',
   exportCancel: 'export:cancel',
-  exportReveal: 'export:reveal'
+  exportReveal: 'export:reveal',
+  aiGetState: 'ai:get-state',
+  aiSaveProvider: 'ai:save-provider',
+  aiRemoveProvider: 'ai:remove-provider',
+  aiDisconnectProvider: 'ai:disconnect-provider',
+  aiTestProvider: 'ai:test-provider',
+  aiRefreshModels: 'ai:refresh-models',
+  aiUpdatePreferences: 'ai:update-preferences',
+  aiRunTurn: 'ai:run-turn',
+  aiCancelTurn: 'ai:cancel-turn',
+  aiListConversations: 'ai:conversations-list',
+  aiLoadConversation: 'ai:conversation-load',
+  aiSaveConversation: 'ai:conversation-save',
+  aiRenameConversation: 'ai:conversation-rename',
+  aiDeleteConversation: 'ai:conversation-delete',
+  aiClearConversations: 'ai:conversations-clear',
+  aiPickAttachments: 'ai:pick-attachments',
+  aiListMcpServers: 'ai:mcp-list',
+  aiSaveMcpServer: 'ai:mcp-save',
+  aiRemoveMcpServer: 'ai:mcp-remove',
+  aiConnectMcpServer: 'ai:mcp-connect',
+  aiDisconnectMcpServer: 'ai:mcp-disconnect',
+  aiTestMcpServer: 'ai:mcp-test',
+  aiListMcpTools: 'ai:mcp-tools',
+  aiCallMcpTool: 'ai:mcp-call'
 } as const;
 
 /** Channels the main process pushes to the renderer. */
 export const IPC_EVENTS = {
-  exportProgress: 'export:progress'
+  exportProgress: 'export:progress',
+  aiTurn: 'ai:turn-event'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -67,6 +106,30 @@ export interface IpcContract {
   'export:start': { request: ExportRequest; response: ExportResult };
   'export:cancel': { request: undefined; response: void };
   'export:reveal': { request: undefined; response: void };
+  'ai:get-state': { request: undefined; response: AIState };
+  'ai:save-provider': { request: SaveProviderInput; response: AIState };
+  'ai:remove-provider': { request: { providerId: string }; response: AIState };
+  'ai:disconnect-provider': { request: { providerId: string }; response: AIState };
+  'ai:test-provider': { request: SaveProviderInput; response: { modelCount: number } };
+  'ai:refresh-models': { request: { providerId: string }; response: AIState };
+  'ai:update-preferences': { request: AIPreferences; response: AIState };
+  'ai:run-turn': { request: TurnRequest; response: TurnResult };
+  'ai:cancel-turn': { request: { requestId: string }; response: void };
+  'ai:conversations-list': { request: undefined; response: ConversationSummary[] };
+  'ai:conversation-load': { request: { id: string }; response: Conversation | null };
+  'ai:conversation-save': { request: Conversation; response: void };
+  'ai:conversation-rename': { request: { id: string; title: string }; response: void };
+  'ai:conversation-delete': { request: { id: string }; response: void };
+  'ai:conversations-clear': { request: undefined; response: number };
+  'ai:pick-attachments': { request: undefined; response: AttachmentPickResult };
+  'ai:mcp-list': { request: undefined; response: McpServerStatus[] };
+  'ai:mcp-save': { request: SaveMcpServerInput; response: AIState };
+  'ai:mcp-remove': { request: { serverId: string }; response: AIState };
+  'ai:mcp-connect': { request: { serverId: string }; response: McpServerStatus };
+  'ai:mcp-disconnect': { request: { serverId: string }; response: McpServerStatus | null };
+  'ai:mcp-test': { request: { serverId: string }; response: McpServerStatus };
+  'ai:mcp-tools': { request: undefined; response: McpToolInfo[] };
+  'ai:mcp-call': { request: { serverId: string; tool: string; input: Record<string, unknown> }; response: McpCallResult };
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request'];

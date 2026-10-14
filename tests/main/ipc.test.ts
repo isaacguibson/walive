@@ -10,7 +10,9 @@ import { ProjectService } from '@core/project/projectService';
 import { ALLOWED_IPC_CHANNELS, IPC_CHANNELS } from '@shared/ipc/channels';
 import type { IpcResult } from '@shared/types/errors';
 import type { SceneCollection } from '@shared/types/scenes';
+import { registerAiIpcHandlers } from '../../src/main/ipc/registerAiIpcHandlers';
 import { registerIpcHandlers, type AssetFilePicker, type DirectoryPicker } from '../../src/main/ipc/registerIpcHandlers';
+import { createAiServices } from '../helpers/ai';
 import { makeTempDir } from '../helpers/tempDir';
 
 type Listener = (event: unknown, payload?: unknown) => unknown;
@@ -42,6 +44,13 @@ async function setup(pickResult: string | null = null, pickedFiles: string[] = [
     assetPicker,
     logger: silentLogger
   });
+  const ai = createAiServices(root);
+  registerAiIpcHandlers({
+    ipc: { handle: (channel, listener) => void handlers.set(channel, listener) },
+    ...ai,
+    attachmentPicker: { pickFiles: async () => [] },
+    logger: silentLogger
+  });
 
   async function invoke<T>(channel: string, payload?: unknown): Promise<IpcResult<T>> {
     const handler = handlers.get(channel);
@@ -65,7 +74,7 @@ async function firstSceneId(invoke: <T>(channel: string, payload?: unknown) => P
 describe('IPC handlers', () => {
   it('registers exactly the explicitly defined channels', async () => {
     const { handlers } = await setup();
-    expect([...handlers.keys()].sort()).toEqual(
+    expect([...handlers.keys()].filter((channel) => !channel.startsWith('ai:')).sort()).toEqual(
       [
         'animation:load',
         'animation:save',

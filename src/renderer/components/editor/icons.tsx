@@ -4,6 +4,8 @@ export type IconName =
   | 'eraser'
   | 'fill'
   | 'select'
+  | 'settings'
+  | 'history'
   | 'play'
   | 'stop'
   | 'undo'
@@ -63,6 +65,8 @@ const PATHS: Record<IconName, readonly string[]> = {
     'M3 14v1',
     'M21 14v1'
   ],
+  settings: ['M4 7h9', 'M17 7h3', 'M15 5v4', 'M4 17h3', 'M11 17h9', 'M9 15v4'],
+  history: ['M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0', 'M12 7v5l3 2'],
   play: ['M7 4.5v15l12.5-7.5Z'],
   stop: ['M6 6h12v12H6Z'],
   undo: ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11'],

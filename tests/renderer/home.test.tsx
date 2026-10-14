@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
 import {
+  createMockAiApi,
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
@@ -31,6 +32,7 @@ function renderApp(api = createMockApi()) {
       assetsApi={createMockAssetsApi()}
       scenesApi={createMockScenesApi()}
       exportApi={createMockExportApi()}
+      aiApi={createMockAiApi()}
     />
   );
   return { api, animationApi, user };

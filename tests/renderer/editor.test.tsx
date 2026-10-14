@@ -7,6 +7,7 @@ import type { AnimationDocument } from '@shared/types/animation';
 import { ASSET_DRAG_MIME } from '@shared/types/assets';
 import { EditorPage } from '../../src/renderer/pages/EditorPage';
 import {
+  createMockAiApi,
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
@@ -15,6 +16,7 @@ import {
   fail,
   metadata,
   ok,
+  type MockAiApi,
   type MockAnimationApi,
   type MockAssetsApi,
   type MockExportApi,
@@ -32,6 +34,7 @@ interface Options {
   assetsApi?: MockAssetsApi;
   scenesApi?: MockScenesApi;
   exportApi?: MockExportApi;
+  aiApi?: MockAiApi;
 }
 
 function renderEditor(options: Options = {}) {
@@ -41,6 +44,7 @@ function renderEditor(options: Options = {}) {
   const assetsApi = options.assetsApi ?? createMockAssetsApi();
   const scenesApi = options.scenesApi ?? createMockScenesApi();
   const exportApi = options.exportApi ?? createMockExportApi();
+  const aiApi = options.aiApi ?? createMockAiApi();
   const onClosed = vi.fn();
   render(
     <EditorPage
@@ -49,11 +53,12 @@ function renderEditor(options: Options = {}) {
       assetsApi={assetsApi}
       scenesApi={scenesApi}
       exportApi={exportApi}
+      aiApi={aiApi}
       project={PROJECT}
       onClosed={onClosed}
     />
   );
-  return { user, api, animationApi, assetsApi, scenesApi, exportApi, onClosed };
+  return { user, api, animationApi, assetsApi, scenesApi, exportApi, aiApi, onClosed };
 }
 
 async function renderReadyEditor(options: Options = {}) {

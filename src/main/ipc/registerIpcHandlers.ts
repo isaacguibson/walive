@@ -1,19 +1,10 @@
-import { AppError, toAppErrorInfo } from '@core/errors';
-import { describeError, type Logger } from '@core/logger';
+import type { Logger } from '@core/logger';
 import type { ProjectApplication } from '@core/application/projectApplication';
 import type { ExportApplication } from '@core/application/exportApplication';
-import {
-  IPC_CHANNELS,
-  type IpcChannel,
-  type IpcRequest,
-  type IpcResponse
-} from '@shared/ipc/channels';
-import type { IpcResult } from '@shared/types/errors';
+import { IPC_CHANNELS, type IpcRequest } from '@shared/ipc/channels';
+import { asRecord, createRegistrar, requireString, type IpcMainLike } from './ipcSupport';
 
-/** Minimal slice of Electron's `ipcMain` used here, so handlers are testable without Electron. */
-export interface IpcMainLike {
-  handle(channel: string, listener: (event: unknown, payload?: unknown) => unknown): void;
-}
+export type { IpcMainLike };
 
 /** Native directory selection, implemented in the main process. */
 export interface DirectoryPicker {
@@ -35,24 +26,6 @@ export interface IpcDependencies {
   logger: Logger;
 }
 
-function invalidRequest(): AppError {
-  return new AppError('INVALID_REQUEST', 'The request could not be processed.');
-}
-
-function asRecord(payload: unknown): Record<string, unknown> {
-  if (typeof payload !== 'object' || payload === null) {
-    throw invalidRequest();
-  }
-  return payload as Record<string, unknown>;
-}
-
-function requireString(value: unknown): string {
-  if (typeof value !== 'string') {
-    throw invalidRequest();
-  }
-  return value;
-}
-
 /** Registers exactly the channels defined in `IPC_CHANNELS`; nothing generic is exposed. */
 export function registerIpcHandlers({
   ipc,
@@ -62,21 +35,7 @@ export function registerIpcHandlers({
   assetPicker,
   logger
 }: IpcDependencies): void {
-  function register<C extends IpcChannel>(
-    channel: C,
-    handler: (request: unknown) => Promise<IpcResponse<C>> | IpcResponse<C>
-  ): void {
-    ipc.handle(channel, async (_event, payload): Promise<IpcResult<IpcResponse<C>>> => {
-      try {
-        return { ok: true, value: await handler(payload) };
-      } catch (error) {
-        if (!(error instanceof AppError)) {
-          logger.error(`Unexpected error in ${channel}`, describeError(error));
-        }
-        return { ok: false, error: toAppErrorInfo(error) };
-      }
-    });
-  }
+  const register = createRegistrar(ipc, logger);
 
   register(IPC_CHANNELS.createProject, async (payload) => {
     const request = asRecord(payload) as Partial<IpcRequest<'project:create'>>;

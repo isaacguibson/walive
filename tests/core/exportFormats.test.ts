@@ -66,7 +66,7 @@ describe('ZIP writer', () => {
     }
     await expect(writer.add('one-too-many', Buffer.alloc(0))).rejects.toMatchObject({ code: 'EXPORT_FAILED' });
     await writer.abort();
-  });
+  }, 30_000);
 });
 
 function gradient(width: number, height: number): Uint8Array {

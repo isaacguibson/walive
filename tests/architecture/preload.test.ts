@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
 }));
 
 type Api = Record<string, (...args: unknown[]) => Promise<unknown>>;
-type FullApi = { project: Api; animation: Api; scenes: Api; assets: Api; export: Api };
+type FullApi = { project: Api; animation: Api; scenes: Api; assets: Api; export: Api; ai: Api };
 
 async function loadFullApi(): Promise<FullApi> {
   vi.resetModules();
@@ -35,11 +35,11 @@ describe('preload API', () => {
     invoke.mockResolvedValue({ ok: true, value: undefined });
   });
 
-  it('exposes a single "api" object with only the project, animation, scene, asset and export operations', async () => {
+  it('exposes a single "api" object with only the project, animation, scene, asset, export and AI operations', async () => {
     const { project, animation, scenes, assets, export: exportApi } = await loadFullApi();
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [, api] = exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
-    expect(Object.keys(api).sort()).toEqual(['animation', 'assets', 'export', 'project', 'scenes']);
+    expect(Object.keys(api).sort()).toEqual(['ai', 'animation', 'assets', 'export', 'project', 'scenes']);
     expect(Object.keys(exportApi).sort()).toEqual([
       'cancelExport',
       'chooseDestination',

@@ -1,4 +1,19 @@
 import type { IpcResult } from './errors';
+import type {
+  AIPreferences,
+  AIState,
+  AttachmentPickResult,
+  Conversation,
+  ConversationSummary,
+  McpCallResult,
+  McpServerStatus,
+  McpToolInfo,
+  SaveMcpServerInput,
+  SaveProviderInput,
+  TurnEvent,
+  TurnRequest,
+  TurnResult
+} from '../ai/types';
 import type { AnimationDocument } from './animation';
 import type { AssetImportResult, ProjectAsset } from './assets';
 import type {
@@ -87,10 +102,48 @@ export interface ExportAPI {
   onProgress(listener: (progress: ExportProgress) => void): () => void;
 }
 
+/**
+ * AI providers, conversations and MCP servers (HU_00014). Credentials are write-only: the main
+ * process stores them and the renderer only ever sees a masked hint.
+ */
+export interface AIAPI {
+  getState(): Promise<IpcResult<AIState>>;
+  saveProvider(input: SaveProviderInput): Promise<IpcResult<AIState>>;
+  removeProvider(providerId: string): Promise<IpcResult<AIState>>;
+  /** Forgets the stored key but keeps the connection. */
+  disconnectProvider(providerId: string): Promise<IpcResult<AIState>>;
+  /** Checks a configuration without saving it. */
+  testProvider(input: SaveProviderInput): Promise<IpcResult<{ modelCount: number }>>;
+  refreshModels(providerId: string): Promise<IpcResult<AIState>>;
+  updatePreferences(preferences: AIPreferences): Promise<IpcResult<AIState>>;
+  /** One model request. Text is streamed through `onTurnEvent` while it runs. */
+  runTurn(request: TurnRequest): Promise<IpcResult<TurnResult>>;
+  cancelTurn(requestId: string): Promise<IpcResult<void>>;
+  onTurnEvent(listener: (event: TurnEvent) => void): () => void;
+  listConversations(): Promise<IpcResult<ConversationSummary[]>>;
+  loadConversation(id: string): Promise<IpcResult<Conversation | null>>;
+  saveConversation(conversation: Conversation): Promise<IpcResult<void>>;
+  renameConversation(id: string, title: string): Promise<IpcResult<void>>;
+  deleteConversation(id: string): Promise<IpcResult<void>>;
+  /** Deletes every stored conversation; resolves to how many were removed. */
+  clearConversations(): Promise<IpcResult<number>>;
+  /** Native file picker; the chosen files are validated and read by the main process. */
+  pickAttachments(): Promise<IpcResult<AttachmentPickResult>>;
+  listMcpServers(): Promise<IpcResult<McpServerStatus[]>>;
+  saveMcpServer(input: SaveMcpServerInput): Promise<IpcResult<AIState>>;
+  removeMcpServer(serverId: string): Promise<IpcResult<AIState>>;
+  connectMcpServer(serverId: string): Promise<IpcResult<McpServerStatus>>;
+  disconnectMcpServer(serverId: string): Promise<IpcResult<McpServerStatus | null>>;
+  testMcpServer(serverId: string): Promise<IpcResult<McpServerStatus>>;
+  listMcpTools(): Promise<IpcResult<McpToolInfo[]>>;
+  callMcpTool(serverId: string, tool: string, input: Record<string, unknown>): Promise<IpcResult<McpCallResult>>;
+}
+
 export interface AppAPI {
   project: ProjectAPI;
   animation: AnimationAPI;
   scenes: ScenesAPI;
   assets: AssetsAPI;
   export: ExportAPI;
+  ai: AIAPI;
 }

@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import type { AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import { useEffect, useMemo, useState } from 'react';
+import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectMetadata } from '@shared/types/project';
+import { AgentController } from '../ai/agentController';
+import { createTurnClient } from '../ai/turnClient';
 import { ConfirmCloseDialog } from '../components/editor/ConfirmCloseDialog';
 import { ConfirmDeleteSceneDialog } from '../components/editor/ConfirmDeleteSceneDialog';
 import { Editor } from '../components/editor/Editor';
@@ -16,6 +18,7 @@ interface EditorPageProps {
   assetsApi: AssetsAPI;
   scenesApi: ScenesAPI;
   exportApi: ExportAPI;
+  aiApi: AIAPI;
   project: ProjectMetadata;
   onClosed(): void;
 }
@@ -30,7 +33,7 @@ type SceneDialog = { kind: 'create'; discardCurrent: boolean } | { kind: 'rename
  * coordinates saving, scene management and closing. The editor never touches
  * files itself.
  */
-export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi, project, onClosed }: EditorPageProps) {
+export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi, aiApi, project, onClosed }: EditorPageProps) {
   const workspace = useSceneWorkspace(project, animationApi, scenesApi);
   const { state, saving, busy, save } = workspace;
   const [closing, setClosing] = useState(false);
@@ -40,6 +43,13 @@ export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi,
   const [sceneDialog, setSceneDialog] = useState<SceneDialog | null>(null);
   const [exporting, setExporting] = useState(false);
   const session = state.status === 'ready' ? state.session : null;
+
+  // The agent outlives scene changes (the editor is rebuilt for each scene) but not the project.
+  const agent = useMemo(() => new AgentController(aiApi, createTurnClient(aiApi)), [aiApi]);
+  useEffect(() => {
+    void agent.load();
+    return () => agent.dispose();
+  }, [agent]);
 
   async function closeProject() {
     setClosing(true);
@@ -160,6 +170,10 @@ export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi,
         key={state.activeSceneId}
         session={state.session}
         assetsApi={assetsApi}
+        scenesApi={scenesApi}
+        aiApi={aiApi}
+        agent={agent}
+        scene={{ id: state.activeSceneId, name: activeScene?.name ?? '' }}
         projectName={project.name}
         sceneSelector={
           <SceneSelector

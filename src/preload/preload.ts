@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS, IPC_EVENTS, type IpcChannel, type IpcRequest, type IpcResponse } from '@shared/ipc/channels';
 import type { AppAPI } from '@shared/types/api';
 import type { ExportProgress } from '@shared/types/export';
+import type { TurnEvent } from '@shared/ai/types';
 import type { IpcResult } from '@shared/types/errors';
 
 /** Calls one known channel and converts transport failures into an `IpcResult`. */
@@ -58,6 +59,39 @@ const api: AppAPI = {
         ipcRenderer.removeListener(IPC_EVENTS.exportProgress, subscription);
       };
     }
+  },
+  ai: {
+    getState: () => call(IPC_CHANNELS.aiGetState),
+    saveProvider: (input) => call(IPC_CHANNELS.aiSaveProvider, input),
+    removeProvider: (providerId) => call(IPC_CHANNELS.aiRemoveProvider, { providerId }),
+    disconnectProvider: (providerId) => call(IPC_CHANNELS.aiDisconnectProvider, { providerId }),
+    testProvider: (input) => call(IPC_CHANNELS.aiTestProvider, input),
+    refreshModels: (providerId) => call(IPC_CHANNELS.aiRefreshModels, { providerId }),
+    updatePreferences: (preferences) => call(IPC_CHANNELS.aiUpdatePreferences, preferences),
+    runTurn: (request) => call(IPC_CHANNELS.aiRunTurn, request),
+    cancelTurn: (requestId) => call(IPC_CHANNELS.aiCancelTurn, { requestId }),
+    onTurnEvent: (listener) => {
+      const subscription = (_event: unknown, turn: TurnEvent): void => listener(turn);
+      ipcRenderer.on(IPC_EVENTS.aiTurn, subscription);
+      return () => {
+        ipcRenderer.removeListener(IPC_EVENTS.aiTurn, subscription);
+      };
+    },
+    listConversations: () => call(IPC_CHANNELS.aiListConversations),
+    loadConversation: (id) => call(IPC_CHANNELS.aiLoadConversation, { id }),
+    saveConversation: (conversation) => call(IPC_CHANNELS.aiSaveConversation, conversation),
+    renameConversation: (id, title) => call(IPC_CHANNELS.aiRenameConversation, { id, title }),
+    deleteConversation: (id) => call(IPC_CHANNELS.aiDeleteConversation, { id }),
+    clearConversations: () => call(IPC_CHANNELS.aiClearConversations),
+    pickAttachments: () => call(IPC_CHANNELS.aiPickAttachments),
+    listMcpServers: () => call(IPC_CHANNELS.aiListMcpServers),
+    saveMcpServer: (input) => call(IPC_CHANNELS.aiSaveMcpServer, input),
+    removeMcpServer: (serverId) => call(IPC_CHANNELS.aiRemoveMcpServer, { serverId }),
+    connectMcpServer: (serverId) => call(IPC_CHANNELS.aiConnectMcpServer, { serverId }),
+    disconnectMcpServer: (serverId) => call(IPC_CHANNELS.aiDisconnectMcpServer, { serverId }),
+    testMcpServer: (serverId) => call(IPC_CHANNELS.aiTestMcpServer, { serverId }),
+    listMcpTools: () => call(IPC_CHANNELS.aiListMcpTools),
+    callMcpTool: (serverId, tool, input) => call(IPC_CHANNELS.aiCallMcpTool, { serverId, tool, input })
   }
 };
 

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AnimationDocument } from '@shared/types/animation';
 import { EditorPage } from '../../src/renderer/pages/EditorPage';
 import {
+  createMockAiApi,
   createMockAnimationApi,
   createMockApi,
   createMockAssetsApi,
@@ -45,6 +46,7 @@ async function renderEditor(options: Options = {}) {
       assetsApi={createMockAssetsApi()}
       scenesApi={createMockScenesApi(['Opening'])}
       exportApi={exportApi}
+      aiApi={createMockAiApi()}
       project={PROJECT}
       onClosed={vi.fn()}
     />

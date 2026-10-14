@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { EditorSession } from '@editor/editorSession';
-import type { AssetsAPI } from '@shared/types/api';
+import type { AIAPI, AssetsAPI, ScenesAPI } from '@shared/types/api';
 import { matchShortcut } from '@editor/shortcuts/shortcuts';
+import type { AgentController } from '../../ai/agentController';
 import { useEditorSnapshot } from '../../state/useEditorSnapshot';
+import { AgentWorkspace } from '../ai/AgentWorkspace';
 import { AssetPanel } from './AssetPanel';
 import { CanvasWorkspace } from './CanvasWorkspace';
 import { LayerPanel } from './LayerPanel';
@@ -24,6 +26,11 @@ function clamp(value: number, min: number, max: number): number {
 interface EditorProps {
   session: EditorSession;
   assetsApi: AssetsAPI;
+  scenesApi: ScenesAPI;
+  aiApi: AIAPI;
+  agent: AgentController;
+  /** The scene being edited. */
+  scene: { id: string; name: string };
   projectName: string;
   /** Scene controls shown in the header, before the project actions. */
   sceneSelector: ReactNode;
@@ -56,14 +63,14 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 /** The four editor areas plus the project header. Owns shortcuts and fullscreen, never persistence. */
-export function Editor({ session, assetsApi, projectName, sceneSelector, saving, closing, onExport, onSave, onClose }: EditorProps) {
+export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, projectName, sceneSelector, saving, closing, onExport, onSave, onClose }: EditorProps) {
   const snapshot = useEditorSnapshot(session);
   const { state } = snapshot;
   const rootRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(168);
   const [inspectorWidth, setInspectorWidth] = useState(260);
-  const [aiChatWidth, setAiChatWidth] = useState(260);
+  const [aiChatWidth, setAiChatWidth] = useState(340);
   const [resizeState, setResizeState] = useState<
     null | { kind: 'timeline' | 'inspector' | 'chat'; startX: number; startY: number; startValue: number }
   >(null);
@@ -312,21 +319,16 @@ export function Editor({ session, assetsApi, projectName, sceneSelector, saving,
             onPointerDown={(event) => startResize('chat', event)}
           />
 
-          <section className="editor-ai-panel" role="region" aria-label="AI Assistant" style={{ width: aiChatWidth }}>
-            <div className="panel-title-row">
-              <h2 className="panel-title">AI Assistant</h2>
-            </div>
-            <div className="ai-chat-empty">
-              <p className="empty-title">Your AI assistant will be available here</p>
-              <p className="muted">AI integrations are not configured yet.</p>
-            </div>
-            <div className="ai-chat-input-row">
-              <textarea aria-label="AI chat input" placeholder="Ask something..." rows={3} />
-              <button type="button" className="button button-small button-primary" aria-label="Send">
-                Send
-              </button>
-            </div>
-          </section>
+          <AgentWorkspace
+            controller={agent}
+            aiApi={aiApi}
+            session={session}
+            projectName={projectName}
+            scene={scene}
+            scenesApi={scenesApi}
+            assetsApi={assetsApi}
+            width={aiChatWidth}
+          />
         </aside>
       </div>
 

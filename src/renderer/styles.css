@@ -259,6 +259,7 @@ p {
 /* Dialogs */
 .dialog-backdrop {
   position: fixed;
+  z-index: 1000;
   inset: 0;
   display: flex;
   align-items: center;
@@ -935,16 +936,250 @@ label[for='keep-aspect-ratio'] {
   text-align: center;
 }
 
-.ai-chat-input-row {
+.ai-header {
   display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  margin-top: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
 }
 
-.ai-chat-input-row textarea {
+.ai-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-conversation-title {
+  margin: 0 0 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.ai-messages,
+.ai-conversations {
+  display: flex;
   flex: 1;
-  min-height: 72px;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.ai-message {
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.ai-user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+
+.ai-assistant {
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.ai-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.markdown p,
+.markdown ul {
+  margin: 0 0 6px;
+}
+
+.markdown pre {
+  margin: 0 0 6px;
+  padding: 8px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.markdown code,
+.ai-command {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.ai-command {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.ai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0;
+  margin: 4px 0 0;
+  list-style: none;
+}
+
+.ai-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.ai-chips button {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ai-tool {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.ai-tool > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.ai-tool > p,
+.ai-tool > .ai-approval {
+  margin: 0;
+  padding: 0 10px 8px;
+}
+
+.ai-tool-status {
+  color: var(--muted);
+}
+
+.ai-tool-failed .ai-tool-status,
+.ai-tool-denied .ai-tool-status {
+  color: var(--danger);
+}
+
+.ai-tool-completed .ai-tool-status {
+  color: var(--accent);
+}
+
+.ai-tool-awaiting-approval {
+  border-color: var(--warning);
+}
+
+.ai-approval dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 0 0 8px;
+}
+
+.ai-approval dt {
+  color: var(--muted);
+}
+
+.ai-approval dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-approval-actions,
+.ai-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--muted);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-notice-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.ai-notice-completed {
+  border-color: var(--accent);
+}
+
+.ai-activity {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-conversations li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-conversations li.is-active {
+  color: var(--accent);
+}
+
+.ai-conversation-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-composer textarea {
+  min-height: 64px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -952,6 +1187,104 @@ label[for='keep-aspect-ratio'] {
   color: var(--text);
   font: inherit;
   resize: vertical;
+}
+
+.ai-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-composer-bar select {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ai-composer .field-hint {
+  margin: 0;
+}
+
+.ai-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-tabs button {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ai-tabs button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.ai-settings {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.ai-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  margin: 0 0 12px;
+  list-style: none;
+}
+
+.ai-settings-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ai-settings-form {
+  margin-top: 12px;
+}
+
+.ai-manual-models {
+  margin: 0 0 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ai-manual-model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-manual-model input[type='text'],
+.ai-manual-model input:not([type]) {
+  flex: 1;
+  min-width: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .layer-list {

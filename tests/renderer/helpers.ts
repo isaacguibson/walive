@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
-import type { AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import { DEFAULT_APPROVAL, DEFAULT_LIMITS, type AIState, type ModelInfo, type ProviderConfig, type TurnEvent } from '@shared/ai/types';
+import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectAsset } from '@shared/types/assets';
 import type { AppErrorCode, IpcResult } from '@shared/types/errors';
 import type { ExportProgress } from '@shared/types/export';
@@ -171,6 +172,86 @@ export function createMockExportApi(overrides: Partial<ExportAPI> = {}): MockExp
       return () => listeners.delete(listener);
     }),
     emitProgress: (progress) => listeners.forEach((listener) => listener(progress))
+  };
+  for (const [key, impl] of Object.entries(overrides)) {
+    (api as Record<string, unknown>)[key] = vi.fn(impl as (...args: never[]) => unknown);
+  }
+  return api;
+}
+
+export type MockAiApi = { [K in keyof AIAPI]: ReturnType<typeof vi.fn<AIAPI[K]>> } & {
+  /** Delivers a streamed-text event to every subscriber, like the main process does. */
+  emitTurn(event: TurnEvent): void;
+  /** Replaces the state that later calls report, like a settings change in the main process. */
+  setState(state: AIState): void;
+};
+
+export const PROVIDER: ProviderConfig = { id: 'provider-1', kind: 'openai', name: 'My OpenAI', baseUrl: null, credentialHint: '••••1234', manualModels: [] };
+
+export function aiModel(overrides: Partial<ModelInfo> = {}): ModelInfo {
+  return {
+    providerId: PROVIDER.id,
+    id: 'gpt-4o',
+    displayName: 'gpt-4o',
+    source: 'catalog',
+    capabilities: { image: 'yes', tools: 'yes', streaming: 'yes', efforts: [], contextWindow: null },
+    available: true,
+    ...overrides
+  };
+}
+
+/** An AI state with no providers, or with the given ones. */
+export function aiState(models: ModelInfo[] = [], providers: ProviderConfig[] = models.length > 0 ? [PROVIDER] : []): AIState {
+  return {
+    settings: { providers, selection: null, efforts: {}, limits: { ...DEFAULT_LIMITS }, approval: { ...DEFAULT_APPROVAL }, mcpServers: [] },
+    descriptors: [
+      { kind: 'openai', label: 'OpenAI', authHelp: 'Needs an API key.', needsApiKey: true, customEndpoint: 'optional', defaultBaseUrl: 'https://api.openai.com/v1', available: true, unavailableReason: null },
+      { kind: 'copilot', label: 'GitHub Copilot', authHelp: '', needsApiKey: false, customEndpoint: 'none', defaultBaseUrl: null, available: false, unavailableReason: 'No supported integration.' }
+    ],
+    models
+  };
+}
+
+/** A stateful AI API: preferences are remembered and a turn answers "Done." unless overridden. */
+export function createMockAiApi(initial: AIState = aiState(), overrides: Partial<AIAPI> = {}): MockAiApi {
+  let state = initial;
+  const listeners = new Set<(event: TurnEvent) => void>();
+  const api: MockAiApi = {
+    getState: vi.fn<AIAPI['getState']>(async () => ok(state)),
+    saveProvider: vi.fn<AIAPI['saveProvider']>(async () => ok(state)),
+    removeProvider: vi.fn<AIAPI['removeProvider']>(async () => ok(state)),
+    disconnectProvider: vi.fn<AIAPI['disconnectProvider']>(async () => ok(state)),
+    testProvider: vi.fn<AIAPI['testProvider']>(async () => ok({ modelCount: 3 })),
+    refreshModels: vi.fn<AIAPI['refreshModels']>(async () => ok(state)),
+    updatePreferences: vi.fn<AIAPI['updatePreferences']>(async (preferences) => {
+      state = { ...state, settings: { ...state.settings, ...(preferences.selection !== undefined ? { selection: preferences.selection } : {}), efforts: { ...state.settings.efforts, ...preferences.efforts }, ...(preferences.limits !== undefined ? { limits: preferences.limits } : {}), ...(preferences.approval !== undefined ? { approval: preferences.approval } : {}) } };
+      return ok(state);
+    }),
+    runTurn: vi.fn<AIAPI['runTurn']>(async () => ok({ text: 'Done.', toolCalls: [], stopReason: 'end' as const })),
+    cancelTurn: vi.fn<AIAPI['cancelTurn']>(async () => ok(undefined)),
+    onTurnEvent: vi.fn<AIAPI['onTurnEvent']>((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+    listConversations: vi.fn<AIAPI['listConversations']>(async () => ok([])),
+    loadConversation: vi.fn<AIAPI['loadConversation']>(async () => ok(null)),
+    saveConversation: vi.fn<AIAPI['saveConversation']>(async () => ok(undefined)),
+    renameConversation: vi.fn<AIAPI['renameConversation']>(async () => ok(undefined)),
+    deleteConversation: vi.fn<AIAPI['deleteConversation']>(async () => ok(undefined)),
+    clearConversations: vi.fn<AIAPI['clearConversations']>(async () => ok(0)),
+    pickAttachments: vi.fn<AIAPI['pickAttachments']>(async () => ok({ attachments: [], rejected: [] })),
+    listMcpServers: vi.fn<AIAPI['listMcpServers']>(async () => ok([])),
+    saveMcpServer: vi.fn<AIAPI['saveMcpServer']>(async () => ok(state)),
+    removeMcpServer: vi.fn<AIAPI['removeMcpServer']>(async () => ok(state)),
+    connectMcpServer: vi.fn<AIAPI['connectMcpServer']>(async () => fail('No such server.')),
+    disconnectMcpServer: vi.fn<AIAPI['disconnectMcpServer']>(async () => ok(null)),
+    testMcpServer: vi.fn<AIAPI['testMcpServer']>(async () => fail('No such server.')),
+    listMcpTools: vi.fn<AIAPI['listMcpTools']>(async () => ok([])),
+    callMcpTool: vi.fn<AIAPI['callMcpTool']>(async () => ok({ text: '', isError: false })),
+    emitTurn: (event) => listeners.forEach((listener) => listener(event)),
+    setState: (next) => {
+      state = next;
+    }
   };
   for (const [key, impl] of Object.entries(overrides)) {
     (api as Record<string, unknown>)[key] = vi.fn(impl as (...args: never[]) => unknown);
