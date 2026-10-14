@@ -8,6 +8,7 @@ import type { AppErrorCode } from '../types/errors';
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 type ToolMessage = Extract<ChatMessage, { role: 'tool' }>;
 type UserMessage = Extract<ChatMessage, { role: 'user' }>;
+export type ManagedToolResponse = ToolMessage & { images?: { mediaType: string; data: string }[] };
 
 export interface TurnInput {
   providerId: string;
@@ -21,6 +22,7 @@ export interface TurnInput {
 /** One model request. Implemented over IPC in the application and by fakes in tests. */
 export interface AITurnClient {
   runTurn(input: TurnInput, onDelta: (text: string) => void, signal: AbortSignal): Promise<TurnResult>;
+  runAgent?(input: TurnInput, emit: (event: AgentEvent) => void, execute: (call: ToolCall, signal: AbortSignal) => Promise<ManagedToolResponse>, signal: AbortSignal): Promise<AgentOutcome>;
 }
 
 export interface ApprovalRequest extends ApprovalDetails {
@@ -52,6 +54,7 @@ export type AgentEvent =
 
 export interface AgentRun {
   providerId: string;
+  sdkManaged?: boolean;
   modelId: string;
   effort: EffortLevel | null;
   /** The model can call tools; otherwise it only chats. */
@@ -125,6 +128,23 @@ export class AgentRuntime {
 
     try {
       emit({ type: 'status', phase: 'analyzing', detail: 'Analyzing the request' });
+      if (run.sdkManaged && this.env.turns.runAgent !== undefined) {
+        const result = await this.env.turns.runAgent(
+          { providerId: run.providerId, modelId: run.modelId, effort: run.effort, system: run.system, messages: fitContext(history, limits.maxContextChars).messages, tools: run.toolsEnabled ? this.env.tools.specs() : [] },
+          emit,
+          async (call, toolSignal) => {
+            const messages: ChatMessage[] = [];
+            const images: UserMessage['content'] = [];
+            const stop = await this.runCalls([call], run, state, messages, emit, AbortSignal.any([controller.signal, toolSignal]), images);
+            if (stop !== null) {
+              controller.abort();
+            }
+            return { ...(messages[0] as ToolMessage), images: images.flatMap((part) => part.type === 'image' ? [{ mediaType: part.mediaType, data: part.data }] : []) };
+          },
+          controller.signal
+        );
+        return timedOut ? this.timeout(finish) : { ...result, changes: state.changes };
+      }
       for (;;) {
         if (controller.signal.aborted) {
           return timedOut ? this.timeout(finish) : finish('cancelled', null);

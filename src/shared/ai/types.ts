@@ -47,6 +47,8 @@ export interface ProviderConfig {
   id: string;
   kind: ProviderKind;
   name: string;
+  copilotConnected?: boolean;
+  oauthClientId?: string;
   baseUrl: string | null;
   /** Masked key (for example `••••abcd`), or `null` when none is stored. The key itself never leaves the main process. */
   credentialHint: string | null;
@@ -70,6 +72,7 @@ export interface SaveProviderInput {
   id: string | null;
   kind: ProviderKind;
   name: string;
+  oauthClientId?: string;
   baseUrl: string | null;
   apiKey: string | null;
   manualModels: ManualModel[];

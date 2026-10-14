@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { AIState, ManualModel, ProviderConfig, ProviderDescriptor, ProviderKind, SaveProviderInput } from '@shared/ai/types';
 import type { AIAPI } from '@shared/types/api';
 import { useAsyncAction } from './useAsyncAction';
+import { CopilotConnection } from './CopilotConnection';
 
 interface ProviderForm {
   id: string | null;
@@ -10,10 +11,11 @@ interface ProviderForm {
   baseUrl: string;
   apiKey: string;
   manualModels: ManualModel[];
+  oauthClientId: string;
 }
 
 function blankForm(descriptor: ProviderDescriptor): ProviderForm {
-  return { id: null, kind: descriptor.kind, name: descriptor.label, baseUrl: '', apiKey: '', manualModels: [] };
+  return { id: null, kind: descriptor.kind, name: descriptor.label, baseUrl: '', apiKey: '', manualModels: [], oauthClientId: '' };
 }
 
 function toInput(form: ProviderForm): SaveProviderInput {
@@ -23,7 +25,8 @@ function toInput(form: ProviderForm): SaveProviderInput {
     name: form.name,
     baseUrl: form.baseUrl.trim() === '' ? null : form.baseUrl,
     apiKey: form.apiKey === '' ? null : form.apiKey,
-    manualModels: form.manualModels.filter((model) => model.id.trim() !== '')
+    manualModels: form.manualModels.filter((model) => model.id.trim() !== ''),
+    ...(form.kind === 'copilot' ? { oauthClientId: form.oauthClientId } : {})
   };
 }
 
@@ -42,7 +45,7 @@ export function ProvidersPanel({ ai, api, onState }: ProvidersPanelProps) {
 
   function edit(provider: ProviderConfig) {
     action.clear();
-    setForm({ id: provider.id, kind: provider.kind, name: provider.name, baseUrl: provider.baseUrl ?? '', apiKey: '', manualModels: provider.manualModels });
+    setForm({ id: provider.id, kind: provider.kind, name: provider.name, baseUrl: provider.baseUrl ?? '', apiKey: '', manualModels: provider.manualModels, oauthClientId: provider.oauthClientId ?? '' });
   }
 
   function change(patch: Partial<ProviderForm>) {
@@ -78,9 +81,10 @@ export function ProvidersPanel({ ai, api, onState }: ProvidersPanelProps) {
                 <strong>{provider.name}</strong>
                 <span className="muted">
                   {' '}
-                  {descriptors.find((item) => item.kind === provider.kind)?.label ?? provider.kind} · {provider.credentialHint ?? 'No key'} · {count} model(s)
+                  {descriptors.find((item) => item.kind === provider.kind)?.label ?? provider.kind} · {provider.kind === 'copilot' ? 'GitHub account' : provider.credentialHint ?? 'No key'} · {count} model(s)
                 </span>
               </div>
+              {provider.kind === 'copilot' && <CopilotConnection provider={provider} api={api} onState={onState} />}
               <div className="ai-settings-actions">
                 <button type="button" className="button button-small" disabled={action.busy} onClick={() => edit(provider)}>
                   Edit
@@ -91,7 +95,7 @@ export function ProvidersPanel({ ai, api, onState }: ProvidersPanelProps) {
                 <button
                   type="button"
                   className="button button-small"
-                  disabled={action.busy || provider.credentialHint === null}
+                  disabled={action.busy || provider.credentialHint === null || provider.kind === 'copilot'}
                   onClick={() => void mutate(() => api.disconnectProvider(provider.id), 'The key was removed.')}
                 >
                   Disconnect
@@ -164,7 +168,7 @@ export function ProvidersPanel({ ai, api, onState }: ProvidersPanelProps) {
               />
             </div>
           )}
-          <div className="field">
+          {form.kind !== 'copilot' && <div className="field">
             <label htmlFor="provider-key">API key{descriptor?.needsApiKey === true ? '' : ' (optional)'}</label>
             <input
               id="provider-key"
@@ -174,8 +178,13 @@ export function ProvidersPanel({ ai, api, onState }: ProvidersPanelProps) {
               placeholder={form.id === null ? '' : 'Leave empty to keep the stored key'}
               onChange={(event) => change({ apiKey: event.target.value })}
             />
-          </div>
-          <fieldset className="ai-manual-models">
+          </div>}
+          {form.kind === 'copilot' && <div className="field">
+            <label htmlFor="copilot-oauth-client">GitHub OAuth App Client ID (optional)</label>
+            <input id="copilot-oauth-client" value={form.oauthClientId} onChange={(event) => change({ oauthClientId: event.target.value })} />
+            <p className="field-hint">Use your registered OAuth App with Device Flow enabled. No client secret or repository scopes are requested. Leave empty to connect an existing official CLI login.</p>
+          </div>}
+          {form.kind !== 'copilot' && <fieldset className="ai-manual-models">
             <legend>Manual models</legend>
             <p className="field-hint">Use this when the provider cannot list its models. Only declare what you know the model supports.</p>
             {form.manualModels.map((model, index) => (
@@ -197,7 +206,7 @@ export function ProvidersPanel({ ai, api, onState }: ProvidersPanelProps) {
             <button type="button" className="button button-small" onClick={() => change({ manualModels: [...form.manualModels, { id: '', displayName: '', image: false, tools: false, efforts: [] }] })}>
               Add Model
             </button>
-          </fieldset>
+          </fieldset>}
           <div className="dialog-actions">
             <button type="button" className="button" disabled={action.busy} onClick={() => setForm(null)}>
               Cancel

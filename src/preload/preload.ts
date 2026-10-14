@@ -3,6 +3,7 @@ import { IPC_CHANNELS, IPC_EVENTS, type IpcChannel, type IpcRequest, type IpcRes
 import type { AppAPI } from '@shared/types/api';
 import type { ExportProgress } from '@shared/types/export';
 import type { TurnEvent } from '@shared/ai/types';
+import type { CopilotEvent } from '@shared/ai/copilot';
 import type { IpcResult } from '@shared/types/errors';
 
 /** Calls one known channel and converts transport failures into an `IpcResult`. */
@@ -61,6 +62,18 @@ const api: AppAPI = {
     }
   },
   ai: {
+    connectCopilot: (providerId) => call(IPC_CHANNELS.copilotConnect, { providerId }),
+    getCopilotStatus: (providerId) => call(IPC_CHANNELS.copilotStatus, { providerId }),
+    beginCopilotLogin: (providerId) => call(IPC_CHANNELS.copilotLogin, { providerId }),
+    finishCopilotLogin: (providerId) => call(IPC_CHANNELS.copilotFinishLogin, { providerId }),
+    runCopilot: (request) => call(IPC_CHANNELS.copilotRun, request),
+    respondCopilotTool: (result) => call(IPC_CHANNELS.copilotResult, result),
+    cancelCopilot: (requestId) => call(IPC_CHANNELS.copilotCancel, { requestId }),
+    onCopilotEvent: (listener) => {
+      const subscription = (_event: unknown, event: CopilotEvent): void => listener(event);
+      ipcRenderer.on(IPC_EVENTS.copilotEvent, subscription);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.copilotEvent, subscription);
+    },
     getState: () => call(IPC_CHANNELS.aiGetState),
     saveProvider: (input) => call(IPC_CHANNELS.aiSaveProvider, input),
     removeProvider: (providerId) => call(IPC_CHANNELS.aiRemoveProvider, { providerId }),

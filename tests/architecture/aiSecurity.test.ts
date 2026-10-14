@@ -32,7 +32,7 @@ describe('AI security boundaries', () => {
     const names = Object.keys(api.ai);
     expect(names.length).toBeGreaterThan(10);
     expect(names.filter((name) => /secret|credential|password|apikey|token|keychain/i.test(name))).toEqual([]);
-    expect(names.filter((name) => /^(get|read|reveal|export)/i.test(name) && name !== 'getState')).toEqual([]);
+    expect(names.filter((name) => /^(get|read|reveal|export)/i.test(name) && !['getState', 'getCopilotStatus'].includes(name))).toEqual([]);
   });
 
   it('exposes only fixed, explicit AI channels, none of them generic', () => {

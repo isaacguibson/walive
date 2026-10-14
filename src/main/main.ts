@@ -10,6 +10,10 @@ import { createDefaultProviderRegistry } from '@core/ai/providers/registry';
 import { SecureCredentialService } from '@core/ai/secureCredentialService';
 import { AISettingsService } from '@core/ai/settingsService';
 import { AITurnService } from '@core/ai/turnService';
+import { GitHubCopilotRuntimeService } from '@core/ai/providers/copilotRuntime';
+import { GitHubCopilotAuthenticationService } from '@core/ai/providers/copilotAuthentication';
+import { GitHubCopilotSessionService } from '@core/ai/providers/copilotSessionService';
+import { GitHubCopilotProviderAdapter } from '@core/ai/providers/githubCopilotProviderAdapter';
 import { ExportApplication } from '@core/application/exportApplication';
 import { ProjectApplication } from '@core/application/projectApplication';
 import { RecentProjectsService } from '@core/application/recentProjectsService';
@@ -66,11 +70,19 @@ function createMainWindow(): BrowserWindow {
 function bootstrapAi(): void {
   const directory = path.join(app.getPath('userData'), 'ai');
   const credentials = new SecureCredentialService(path.join(directory, 'credentials.json'), new SafeStorageCipher());
-  const providers = createDefaultProviderRegistry((url, init) => fetch(url, init));
+  const copilotRuntime = new GitHubCopilotRuntimeService(path.join(directory, 'copilot'));
+  const copilotAuth = new GitHubCopilotAuthenticationService(credentials, (url, init) => fetch(url, init));
+  const providers = createDefaultProviderRegistry((url, init) => fetch(url, init), copilotRuntime);
+  (providers.resolve('copilot') as GitHubCopilotProviderAdapter).setAuthentication(copilotAuth);
   const settings = new AISettingsService(path.join(directory, 'settings.json'), credentials, providers);
   const models = new AIModelRegistry(new JsonFile(path.join(directory, 'models.json'), parseModelCache, 'The model list'));
   const mcp = new MCPClientService(settings, consoleLogger);
   registerAiIpcHandlers({
+    copilot: {
+      runtime: copilotRuntime, auth: copilotAuth,
+      sessions: new GitHubCopilotSessionService(copilotRuntime, copilotAuth, settings, path.join(directory, 'copilot-sessions.json')),
+      publish: (event) => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC_EVENTS.copilotEvent, event); }
+    },
     ipc: ipcMain,
     settings,
     providers,
@@ -91,7 +103,14 @@ function bootstrapAi(): void {
     attachmentPicker: new ElectronAttachmentFilePicker(),
     logger: consoleLogger
   });
-  app.on('before-quit', () => void mcp.closeAll());
+  let stopping = false;
+  app.on('before-quit', (event) => {
+    if (stopping) return;
+    event.preventDefault();
+    stopping = true;
+    copilotAuth.close();
+    void Promise.all([mcp.closeAll(), copilotRuntime.close()]).finally(() => app.quit());
+  });
 }
 
 function bootstrap(): void {

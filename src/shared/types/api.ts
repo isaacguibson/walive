@@ -26,6 +26,7 @@ import type {
 } from './export';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from './project';
 import type { SceneCollection } from './scenes';
+import type { CopilotEvent, CopilotLogin, CopilotOutcome, CopilotRequest, CopilotStatus, CopilotToolResult } from '../ai/copilot';
 
 /**
  * API exposed to the renderer by the preload script (`window.api.project`).
@@ -107,6 +108,14 @@ export interface ExportAPI {
  * process stores them and the renderer only ever sees a masked hint.
  */
 export interface AIAPI {
+  connectCopilot(providerId: string): Promise<IpcResult<CopilotStatus>>;
+  getCopilotStatus(providerId: string): Promise<IpcResult<CopilotStatus>>;
+  beginCopilotLogin(providerId: string): Promise<IpcResult<CopilotLogin>>;
+  finishCopilotLogin(providerId: string): Promise<IpcResult<CopilotStatus>>;
+  runCopilot(request: CopilotRequest): Promise<IpcResult<CopilotOutcome>>;
+  respondCopilotTool(result: CopilotToolResult): Promise<IpcResult<void>>;
+  cancelCopilot(requestId: string): Promise<IpcResult<void>>;
+  onCopilotEvent(listener: (event: CopilotEvent) => void): () => void;
   getState(): Promise<IpcResult<AIState>>;
   saveProvider(input: SaveProviderInput): Promise<IpcResult<AIState>>;
   removeProvider(providerId: string): Promise<IpcResult<AIState>>;

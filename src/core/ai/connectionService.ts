@@ -55,7 +55,7 @@ export class AIConnectionService {
       return [];
     }
     const descriptor = this.providers.descriptors().find((candidate) => candidate.kind === config.kind);
-    const usable = descriptor?.needsApiKey !== true || config.credentialHint !== null;
+    const usable = config.kind === 'copilot' ? config.copilotConnected === true : descriptor?.needsApiKey !== true || config.credentialHint !== null;
     return this.models.list(providerId, config.manualModels, usable);
   }
 

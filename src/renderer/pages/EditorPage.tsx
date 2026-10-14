@@ -45,7 +45,10 @@ export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi,
   const session = state.status === 'ready' ? state.session : null;
 
   // The agent outlives scene changes (the editor is rebuilt for each scene) but not the project.
-  const agent = useMemo(() => new AgentController(aiApi, createTurnClient(aiApi)), [aiApi]);
+  const agent = useMemo(() => {
+    const controller = new AgentController(aiApi, createTurnClient(aiApi, () => controller.getSnapshot().conversation.id));
+    return controller;
+  }, [aiApi]);
   useEffect(() => {
     void agent.load();
     return () => agent.dispose();

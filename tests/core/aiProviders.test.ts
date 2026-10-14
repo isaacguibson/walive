@@ -283,7 +283,7 @@ describe('provider registry', () => {
 
   it('lists GitHub Copilot as unavailable, with the reason, and cannot resolve it', () => {
     const registry = createDefaultProviderRegistry(fakeFetch().fetch);
-    expect(registry.descriptors().find((descriptor) => descriptor.kind === 'copilot')).toMatchObject({ available: false, unavailableReason: expect.stringContaining('officially supported') });
+    expect(registry.descriptors().find((descriptor) => descriptor.kind === 'copilot')).toMatchObject({ available: false, unavailableReason: expect.stringContaining('runtime is not configured') });
     expect(() => registry.resolve('copilot')).toThrow(AppError);
   });
 

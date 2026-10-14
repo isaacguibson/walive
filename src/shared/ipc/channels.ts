@@ -23,6 +23,7 @@ import type {
 } from '../types/export';
 import type { ProjectCanvas, ProjectMetadata, RecentProject } from '../types/project';
 import type { SceneCollection } from '../types/scenes';
+import type { CopilotEvent, CopilotLogin, CopilotOutcome, CopilotRequest, CopilotStatus, CopilotToolResult } from '../ai/copilot';
 
 export const IPC_CHANNELS = {
   createProject: 'project:create',
@@ -49,6 +50,13 @@ export const IPC_CHANNELS = {
   exportCancel: 'export:cancel',
   exportReveal: 'export:reveal',
   aiGetState: 'ai:get-state',
+  copilotConnect: 'ai:copilot-connect',
+  copilotStatus: 'ai:copilot-status',
+  copilotLogin: 'ai:copilot-login',
+  copilotFinishLogin: 'ai:copilot-finish-login',
+  copilotRun: 'ai:copilot-run',
+  copilotResult: 'ai:copilot-result',
+  copilotCancel: 'ai:copilot-cancel',
   aiSaveProvider: 'ai:save-provider',
   aiRemoveProvider: 'ai:remove-provider',
   aiDisconnectProvider: 'ai:disconnect-provider',
@@ -77,7 +85,8 @@ export const IPC_CHANNELS = {
 /** Channels the main process pushes to the renderer. */
 export const IPC_EVENTS = {
   exportProgress: 'export:progress',
-  aiTurn: 'ai:turn-event'
+  aiTurn: 'ai:turn-event',
+  copilotEvent: 'ai:copilot-event'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -107,6 +116,13 @@ export interface IpcContract {
   'export:cancel': { request: undefined; response: void };
   'export:reveal': { request: undefined; response: void };
   'ai:get-state': { request: undefined; response: AIState };
+  'ai:copilot-connect': { request: { providerId: string }; response: CopilotStatus };
+  'ai:copilot-status': { request: { providerId: string }; response: CopilotStatus };
+  'ai:copilot-login': { request: { providerId: string }; response: CopilotLogin };
+  'ai:copilot-finish-login': { request: { providerId: string }; response: CopilotStatus };
+  'ai:copilot-run': { request: CopilotRequest; response: CopilotOutcome };
+  'ai:copilot-result': { request: CopilotToolResult; response: void };
+  'ai:copilot-cancel': { request: { requestId: string }; response: void };
   'ai:save-provider': { request: SaveProviderInput; response: AIState };
   'ai:remove-provider': { request: { providerId: string }; response: AIState };
   'ai:disconnect-provider': { request: { providerId: string }; response: AIState };

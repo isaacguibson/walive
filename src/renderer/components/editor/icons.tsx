@@ -35,7 +35,8 @@ export type IconName =
   | 'onion'
   | 'pressure'
   | 'stabilize'
-  | 'opacity';
+  | 'opacity'
+  | 'paperPlane';
 
 const PATHS: Record<IconName, readonly string[]> = {
   brush: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
@@ -124,7 +125,8 @@ const PATHS: Record<IconName, readonly string[]> = {
   onion: ['M12 2v2', 'M8 6a6 6 0 1 0 8 0', 'M6 5 4.5 3.5', 'M18 5l1.5-1.5', 'M4 12H2', 'M22 12h-2', 'M8 11a4 4 0 1 0 8 0', 'M10 20h4'],
   pressure: ['M12 3 6 12l6 9 6-9Z', 'M12 11v7'],
   stabilize: ['M3 16c3-9 6-9 9-1s6 8 9-1'],
-  opacity: ['M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z', 'M6.2 14h11.6']
+  opacity: ['M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z', 'M6.2 14h11.6'],
+  paperPlane: ['M22 2 15 22l-4-9-9-4Z', 'M22 2 11 13'],
 };
 
 const FILLED: ReadonlySet<IconName> = new Set<IconName>(['play', 'stop']);

@@ -35,7 +35,7 @@ export class AIModelRegistry {
     const discovered = (await this.file.read())[providerId] ?? [];
     const declared = manual.map((model) => manualModelInfo(providerId, model));
     const declaredIds = new Set(declared.map((model) => model.id));
-    return [...declared, ...discovered.filter((model) => !declaredIds.has(model.id))].map((model) => ({ ...model, available: usable }));
+    return [...declared, ...discovered.filter((model) => !declaredIds.has(model.id))].map((model) => ({ ...model, available: usable && model.available }));
   }
 
   async store(providerId: string, models: ModelInfo[]): Promise<void> {

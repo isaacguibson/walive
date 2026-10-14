@@ -10,7 +10,6 @@ type Tab = 'providers' | 'mcp' | 'agent';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: 'AI Providers' },
-  { id: 'mcp', label: 'MCP Servers' },
   { id: 'agent', label: 'Agent' }
 ];
 
@@ -36,7 +35,6 @@ export function AISettingsDialog({ ai, api, conversationCount, onState, onClearC
         ))}
       </div>
       {tab === 'providers' && <ProvidersPanel ai={ai} api={api} onState={onState} />}
-      {tab === 'mcp' && <McpPanel ai={ai} api={api} onState={onState} />}
       {tab === 'agent' && <AgentSettingsPanel ai={ai} api={api} conversationCount={conversationCount} onState={onState} onClearConversations={onClearConversations} />}
       <div className="dialog-actions">
         <button type="button" className="button" onClick={onClose}>

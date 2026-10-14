@@ -7,6 +7,11 @@ import type { AIProviderRegistry } from '@core/ai/providers/registry';
 import type { AISettingsService } from '@core/ai/settingsService';
 import type { AITurnService } from '@core/ai/turnService';
 import type { Logger } from '@core/logger';
+import { AppError } from '@core/errors';
+import type { GitHubCopilotRuntimeService } from '@core/ai/providers/copilotRuntime';
+import type { GitHubCopilotAuthenticationService } from '@core/ai/providers/copilotAuthentication';
+import type { GitHubCopilotSessionService } from '@core/ai/providers/copilotSessionService';
+import type { CopilotEvent } from '@shared/ai/copilot';
 import { parseChatMessages, parseConversation, parseEffort, parseToolSpecs } from '@shared/ai/validation';
 import type { AIPreferences, AIState, AgentLimits, ApprovalPolicy, EffortLevel, ManualModel, ProviderKind, SaveMcpServerInput, SaveProviderInput, TurnRequest } from '@shared/ai/types';
 import { IPC_CHANNELS } from '@shared/ipc/channels';
@@ -19,6 +24,7 @@ export interface AttachmentFilePicker {
 }
 
 export interface AiIpcDependencies {
+  copilot?: { runtime: GitHubCopilotRuntimeService; auth: GitHubCopilotAuthenticationService; sessions: GitHubCopilotSessionService; publish(event: CopilotEvent): void };
   ipc: IpcMainLike;
   settings: AISettingsService;
   providers: AIProviderRegistry;
@@ -61,7 +67,8 @@ function parseProviderInput(payload: unknown): SaveProviderInput {
     name: boundedString(request['name'], 200),
     baseUrl: nullableString(request['baseUrl']),
     apiKey: nullableString(request['apiKey']),
-    manualModels: request['manualModels'] as ManualModel[]
+    manualModels: request['manualModels'] as ManualModel[],
+    ...(request['oauthClientId'] === undefined ? {} : { oauthClientId: boundedString(request['oauthClientId'], 100) })
   };
 }
 
@@ -135,22 +142,92 @@ export function registerAiIpcHandlers(deps: AiIpcDependencies): void {
 
   register(IPC_CHANNELS.aiGetState, state);
 
+  function copilotServices() {
+    if (deps.copilot === undefined) throw new AppError('AI_UNSUPPORTED', 'The Copilot runtime is not installed in this environment.');
+    return deps.copilot;
+  }
+
+  async function copilotProvider(payload: unknown) {
+    const id = boundedString(asRecord(payload)['providerId'], 100);
+    const provider = (await settings.get()).providers.find((entry) => entry.id === id && entry.kind === 'copilot');
+    if (provider === undefined) throw new AppError('AI_NOT_FOUND', 'This Copilot connection no longer exists.');
+    return provider;
+  }
+
+  async function connectCopilot(payload: unknown) {
+    const provider = await copilotProvider(payload);
+    const { runtime, auth } = copilotServices();
+    const status = await runtime.connect(provider.id, await auth.token(provider.id));
+    await settings.setCopilotConnected(provider.id, status.state === 'connected');
+    if (status.state === 'connected') await connections.refreshModels(provider.id);
+    return status;
+  }
+
+  register(IPC_CHANNELS.copilotStatus, async (payload) => copilotServices().runtime.status((await copilotProvider(payload)).id));
+  register(IPC_CHANNELS.copilotConnect, connectCopilot);
+  register(IPC_CHANNELS.copilotLogin, async (payload) => {
+    const provider = await copilotProvider(payload);
+    return copilotServices().auth.begin(provider.id, provider.oauthClientId ?? '');
+  });
+  register(IPC_CHANNELS.copilotFinishLogin, async (payload) => {
+    const provider = await copilotProvider(payload);
+    const { auth, runtime } = copilotServices();
+    await auth.finish(provider.id);
+    await runtime.stop(provider.id);
+    return connectCopilot(payload);
+  });
+  register(IPC_CHANNELS.copilotRun, async (payload) => {
+    const request = asRecord(payload);
+    const parsed = parseTurn(payload);
+    const conversationId = boundedString(request['conversationId'], 100);
+    if (!/^[A-Za-z0-9-]{8,100}$/.test(conversationId)) throw invalidRequest();
+    const { sessions, publish } = copilotServices();
+    return sessions.run({ ...parsed, conversationId }, publish);
+  });
+  register(IPC_CHANNELS.copilotResult, async (payload) => {
+    const request = asRecord(payload);
+    if (typeof request['isError'] !== 'boolean') throw invalidRequest();
+    const images = request['images'] === undefined ? [] : request['images'];
+    if (!Array.isArray(images) || images.length > 8) throw invalidRequest();
+    const parsedImages = images.map((image) => {
+      const part = asRecord(image);
+      const mediaType = boundedString(part['mediaType'], 50);
+      if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mediaType)) throw invalidRequest();
+      return { mediaType, data: boundedString(part['data'], 8_000_000) };
+    });
+    copilotServices().sessions.result({ requestId: boundedString(request['requestId'], 100), callId: boundedString(request['callId'], 200), content: boundedString(request['content'], 300_000), isError: request['isError'], images: parsedImages });
+  });
+  register(IPC_CHANNELS.copilotCancel, (payload) => copilotServices().sessions.cancel(boundedString(asRecord(payload)['requestId'], 100)));
+
   register(IPC_CHANNELS.aiSaveProvider, async (payload) => {
     const saved = await settings.saveProvider(parseProviderInput(payload));
     // Models are discovered best-effort: a provider that is down must not block saving it.
-    await connections.refreshModels(saved.id).catch(() => undefined);
+    if (saved.kind !== 'copilot') await connections.refreshModels(saved.id).catch(() => undefined);
     return state();
   });
 
   register(IPC_CHANNELS.aiRemoveProvider, async (payload) => {
     const providerId = requireString(asRecord(payload)['providerId']);
+    if (deps.copilot !== undefined) {
+      await deps.copilot.sessions.forget(providerId);
+      await deps.copilot.runtime.disconnect(providerId);
+      await deps.copilot.auth.disconnect(providerId);
+    }
     await settings.removeProvider(providerId);
     await models.forget(providerId);
     return state();
   });
 
   register(IPC_CHANNELS.aiDisconnectProvider, async (payload) => {
-    await settings.disconnectProvider(requireString(asRecord(payload)['providerId']));
+    const id = requireString(asRecord(payload)['providerId']);
+    if (deps.copilot !== undefined) {
+      await deps.copilot.sessions.forget(id);
+      await deps.copilot.runtime.disconnect(id);
+      await deps.copilot.auth.disconnect(id);
+      await settings.setCopilotConnected(id, false);
+      await models.forget(id);
+    }
+    await settings.disconnectProvider(id);
     return state();
   });
 

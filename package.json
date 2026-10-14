@@ -10,18 +10,22 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package:mac": "npm run build && node scripts/packageMac.mjs",
+    "test:copilot-runtime": "node scripts/copilotSmoke.cjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@github/copilot-sdk": "1.0.21",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "ffmpeg-static": "^5.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",

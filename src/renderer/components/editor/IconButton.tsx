@@ -11,7 +11,7 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   pressed?: boolean;
   /** Optional visible text next to the icon. */
   text?: string;
-  variant?: 'default' | 'round' | 'toggle';
+  variant?: 'default' | 'round' | 'toggle' | 'primary';
   size?: number;
 }
 

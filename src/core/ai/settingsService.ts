@@ -93,6 +93,7 @@ function parseProvider(value: unknown): ProviderConfig | null {
       name: value['name'],
       baseUrl: typeof value['baseUrl'] === 'string' ? value['baseUrl'] : null,
       credentialHint: typeof value['credentialHint'] === 'string' ? value['credentialHint'] : null,
+      ...(value['kind'] === 'copilot' ? { copilotConnected: value['copilotConnected'] === true, ...(typeof value['oauthClientId'] === 'string' ? { oauthClientId: value['oauthClientId'] } : {}) } : {}),
       manualModels: validateManualModels(value['manualModels'] ?? [])
     };
   } catch {
@@ -189,6 +190,7 @@ export class AISettingsService {
     const baseUrl = blankUrl || descriptor.customEndpoint === 'none' ? null : normalizeBaseUrl(input.baseUrl ?? '');
     const manualModels = validateManualModels(input.manualModels);
     const apiKey = input.apiKey?.trim() === '' ? null : (input.apiKey?.trim() ?? null);
+    if (input.kind === 'copilot' && (apiKey !== null || manualModels.length > 0)) throw invalid('Copilot uses GitHub authorization and dynamic model discovery, not API keys or manual models.');
 
     return this.mutate(async (settings) => {
       const existing = input.id === null ? undefined : settings.providers.find((provider) => provider.id === input.id);
@@ -207,9 +209,21 @@ export class AISettingsService {
         credentialHint: apiKey === null ? (existing?.credentialHint ?? null) : maskSecret(apiKey),
         manualModels
       };
+      if (input.kind === 'copilot') {
+        provider.copilotConnected = existing?.copilotConnected ?? false;
+        if (input.oauthClientId !== undefined) {
+          if (input.oauthClientId !== '' && !/^[A-Za-z0-9._-]{8,100}$/.test(input.oauthClientId)) throw invalid('The GitHub OAuth Client ID is invalid.');
+          provider.oauthClientId = input.oauthClientId;
+        }
+      }
       const providers = existing === undefined ? [...settings.providers, provider] : settings.providers.map((item) => (item.id === id ? provider : item));
       return { settings: { ...settings, providers }, result: provider };
     });
+  }
+
+  /** Forgets the stored key but keeps the connection. */
+  setCopilotConnected(id: string, connected: boolean): Promise<void> {
+    return this.mutate(async (settings) => ({ settings: { ...settings, providers: settings.providers.map((provider) => provider.id === id && provider.kind === 'copilot' ? { ...provider, copilotConnected: connected } : provider) }, result: undefined }));
   }
 
   /** Forgets the stored key but keeps the connection. */
@@ -243,10 +257,10 @@ export class AISettingsService {
   async connectionFor(config: Pick<ProviderConfig, 'id' | 'kind' | 'baseUrl' | 'manualModels'>, apiKey: string | null): Promise<ProviderConnection> {
     const descriptor = this.providers.resolve(config.kind).descriptor;
     const baseUrl = config.baseUrl ?? descriptor.defaultBaseUrl;
-    if (baseUrl === null) {
+    if (baseUrl === null && config.kind !== 'copilot') {
       throw invalid('This provider needs an endpoint URL.');
     }
-    return { providerId: config.id, baseUrl, apiKey: apiKey ?? (await this.credentials.get(providerSecret(config.id))), manualModels: config.manualModels };
+    return { providerId: config.id, baseUrl: baseUrl ?? '', apiKey: apiKey ?? (await this.credentials.get(providerSecret(config.id))), manualModels: config.manualModels };
   }
 
   updatePreferences(preferences: AIPreferences): Promise<AISettings> {

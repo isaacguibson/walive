@@ -3,6 +3,8 @@ import type { ProviderDescriptor, ProviderKind } from '@shared/ai/types';
 import type { AIProviderAdapter, FetchLike } from './adapter';
 import { AnthropicAdapter } from './anthropicAdapter';
 import { OpenAiAdapter } from './openAiAdapter';
+import { GitHubCopilotProviderAdapter } from './githubCopilotProviderAdapter';
+import type { GitHubCopilotRuntimeService } from './copilotRuntime';
 
 const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   kind: 'copilot',
@@ -13,7 +15,7 @@ const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   defaultBaseUrl: null,
   available: false,
   unavailableReason:
-    'GitHub does not offer an officially supported way for third-party apps to use a Copilot subscription. It will be added when one exists. Meanwhile, use an OpenAI or Anthropic API key.'
+    'The Copilot runtime is not configured in this application environment.'
 };
 
 /** Registers and resolves provider adapters by kind. */
@@ -43,12 +45,13 @@ export class AIProviderRegistry {
   }
 }
 
-export function createDefaultProviderRegistry(fetchImpl: FetchLike): AIProviderRegistry {
+export function createDefaultProviderRegistry(fetchImpl: FetchLike, copilot?: GitHubCopilotRuntimeService): AIProviderRegistry {
   const registry = new AIProviderRegistry();
   registry.register(new OpenAiAdapter(fetchImpl, true));
   registry.register(new AnthropicAdapter(fetchImpl));
   registry.register(new OpenAiAdapter(fetchImpl, false));
-  registry.registerUnavailable(COPILOT_DESCRIPTOR);
+  if (copilot === undefined) registry.registerUnavailable(COPILOT_DESCRIPTOR);
+  else registry.register(new GitHubCopilotProviderAdapter(copilot));
   return registry;
 }
 

@@ -269,6 +269,7 @@ export class AgentController {
       return 'Choose a model, or add a provider in the AI settings.';
     }
     if (!model.available) {
+      if (this.ai?.settings.providers.find((provider) => provider.id === model.providerId)?.kind === 'copilot') return 'This Copilot model or account is unavailable. Connect the provider and refresh the models in AI settings.';
       return 'The provider of this model has no API key. Add one in the AI settings.';
     }
     if (this.draft.attachments.some((attachment) => attachment.kind === 'image') && model.capabilities.image === 'no') {
@@ -475,6 +476,7 @@ export class AgentController {
     try {
       outcome = await runtime.run(
         {
+          sdkManaged: ai.settings.providers.find((provider) => provider.id === model.providerId)?.kind === 'copilot',
           providerId: model.providerId,
           modelId: model.id,
           effort: this.effectiveEffort(model),

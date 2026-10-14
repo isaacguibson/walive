@@ -671,6 +671,17 @@ label[for='keep-aspect-ratio'] {
   color: #fff;
 }
 
+.icon-button-primary {
+  width: 20px;
+  height: 25px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.icon-button-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
 .icon-button-round:hover:not(:disabled) {
   background: var(--accent-hover);
 }

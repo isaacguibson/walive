@@ -289,16 +289,10 @@ export function ToolOptions({
               onClick={() => onStabilizeStrokeChange(!state.stabilizeStroke)}
             />
           </div>
-          <p className="brush-toggles-help muted">
-            Pressure options require a pressure-sensitive pen. Mouse input uses the configured size and full opacity.
-          </p>
         </BrushFields>
       )}
       {state.selectedTool === 'bezier' && (
         <>
-          <p className="muted">
-            Click to add anchors and drag to shape the curve. Press Enter or double-click to finish, Esc to cancel.
-          </p>
           <BrushFields
             prefix="curve"
             config={state.curveBrush}
@@ -326,7 +320,6 @@ export function ToolOptions({
                 disabled
               />
             </div>
-            <p className="brush-toggles-help muted">Curves use the configured size and opacity along their whole length.</p>
           </BrushFields>
           {selectedCurve !== null && (
             <div className="curve-actions" role="group" aria-label="Selected Curve">

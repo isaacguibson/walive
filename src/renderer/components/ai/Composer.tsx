@@ -96,13 +96,9 @@ export function Composer({ snapshot, onText, onSend, onStop, onAttach, onRemoveA
           </select>
         )}
         {running ? (
-          <button type="button" className="button button-small button-danger" onClick={onStop}>
-            Stop
-          </button>
+          <IconButton icon="stop" label="Stop" variant="primary" tooltip="Stop" size={16} onClick={onStop} />
         ) : (
-          <button type="button" className="button button-small button-primary" disabled={!canSend} onClick={onSend}>
-            Send
-          </button>
+          <IconButton icon="paperPlane" variant="primary" label="Send" tooltip="Send" size={16} disabled={!canSend} onClick={onSend} />
         )}
       </div>
       {model !== null && (

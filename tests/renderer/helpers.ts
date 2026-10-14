@@ -217,6 +217,14 @@ export function createMockAiApi(initial: AIState = aiState(), overrides: Partial
   let state = initial;
   const listeners = new Set<(event: TurnEvent) => void>();
   const api: MockAiApi = {
+    connectCopilot: vi.fn<AIAPI['connectCopilot']>(async () => ok({ state: 'connected', login: 'user', message: 'Connected.' })),
+    getCopilotStatus: vi.fn<AIAPI['getCopilotStatus']>(async () => ok({ state: 'not-connected', login: null, message: 'Connect to use Copilot.' })),
+    beginCopilotLogin: vi.fn<AIAPI['beginCopilotLogin']>(async () => ok({ userCode: 'ABCD-1234', verificationUri: 'https://github.com/login/device', expiresAt: Date.now() + 900_000 })),
+    finishCopilotLogin: vi.fn<AIAPI['finishCopilotLogin']>(async () => ok({ state: 'connected', login: 'user', message: 'Connected.' })),
+    runCopilot: vi.fn<AIAPI['runCopilot']>(async () => ok({ status: 'completed', error: null, iterations: 1, toolCalls: 0 })),
+    respondCopilotTool: vi.fn<AIAPI['respondCopilotTool']>(async () => ok(undefined)),
+    cancelCopilot: vi.fn<AIAPI['cancelCopilot']>(async () => ok(undefined)),
+    onCopilotEvent: vi.fn<AIAPI['onCopilotEvent']>(() => () => undefined),
     getState: vi.fn<AIAPI['getState']>(async () => ok(state)),
     saveProvider: vi.fn<AIAPI['saveProvider']>(async () => ok(state)),
     removeProvider: vi.fn<AIAPI['removeProvider']>(async () => ok(state)),
