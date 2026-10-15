@@ -197,7 +197,7 @@ describe('layout and tooltips', () => {
 
   it('uses English labels for the tools', async () => {
     await renderReadyEditor();
-    for (const name of ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Selection Tool', 'Undo', 'Redo']) {
+    for (const name of ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Geometric Shapes', 'Selection Tool', 'Undo', 'Redo']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(screen.queryByRole('button', { name: 'Color Picker' })).not.toBeInTheDocument();
@@ -578,7 +578,7 @@ describe('placing an image on the canvas', () => {
 describe('tools', () => {
   it('has Brush selected and exactly one tool selected at a time', async () => {
     const { user } = await renderReadyEditor();
-    const tools = ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Selection Tool'];
+    const tools = ['Brush', 'Bézier Curve', 'Eraser', 'Fill Tool', 'Geometric Shapes', 'Selection Tool'];
     expect(screen.getByRole('button', { name: 'Brush' })).toHaveAttribute('aria-pressed', 'true');
     for (const name of tools) {
       await user.click(screen.getByRole('button', { name }));
@@ -790,6 +790,140 @@ describe('Selection Tool', () => {
   });
 });
 
+describe('Geometric Shapes tool', () => {
+  const keyDown = (key: string, target: Element = document.body) => fireEvent.keyDown(target, { key });
+  const options = () => within(screen.getByRole('region', { name: 'Tool Options' }));
+
+  async function selectShapes() {
+    const result = await renderReadyEditor();
+    await result.user.click(screen.getByRole('button', { name: 'Geometric Shapes' }));
+    fireEvent.change(options().getByRole('slider', { name: 'Size' }), { target: { value: '20' } });
+    return result;
+  }
+
+  it('offers the four shapes with size and rotation controls', async () => {
+    await selectShapes();
+    const shapes = options().getByRole('combobox', { name: 'Shape' });
+    expect(within(shapes).getAllByRole('option').map((option) => option.textContent)).toEqual(['Square', 'Triangle', 'Circle', 'Straight Line']);
+    expect(options().getByRole('slider', { name: 'Size' })).toHaveValue('20');
+    expect(options().getByRole('slider', { name: 'Rotation' })).toHaveValue('0');
+    expect(options().getByRole('textbox', { name: 'Rotation in degrees' })).toHaveValue('0');
+    expect(options().queryByRole('group', { name: 'Pending Shape' })).toBeNull();
+  });
+
+  it('shows a live preview of the pending shape and follows the options', async () => {
+    const { user } = await selectShapes();
+    stroke([30, 30]);
+    const overlay = screen.getByTestId('shape-overlay');
+    expect(overlay.querySelector('polygon')?.getAttribute('points')?.split(' ')).toHaveLength(4);
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+
+    await user.selectOptions(options().getByRole('combobox', { name: 'Shape' }), 'line');
+    expect(screen.getByTestId('shape-overlay').querySelector('polyline')?.getAttribute('points')?.split(' ')).toHaveLength(2);
+
+    fireEvent.change(options().getByRole('textbox', { name: 'Rotation in degrees' }), { target: { value: '90' } });
+    expect(options().getByRole('slider', { name: 'Rotation' })).toHaveValue('90');
+    expect(screen.getByTestId('shape-overlay').querySelector('polyline')?.getAttribute('points')).toBe('30,20 30,40');
+  });
+
+  it('confirms with Enter and saves the shape as pixels of the layer', async () => {
+    const { user, animationApi } = await selectShapes();
+    await user.click(options().getByLabelText('Fill'));
+    stroke([30, 30]);
+    keyDown('Enter');
+    expect(screen.queryByTestId('shape-overlay')).toBeNull();
+    expect(options().queryByRole('group', { name: 'Pending Shape' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Save Project' }));
+    await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalledTimes(1));
+    const layer = savedDocument(animationApi).frames[0]?.layers[0];
+    expect(layer?.pixels?.[(30 * SIZE + 30) * 4 + 3]).toBe(255);
+    expect(layer?.curves).toBeUndefined();
+  });
+
+  it('confirms with the button and with a click outside, and cancels with Escape', async () => {
+    const { user } = await selectShapes();
+    stroke([30, 30]);
+    await user.click(within(options().getByRole('group', { name: 'Pending Shape' })).getByRole('button', { name: 'Confirm Shape' }));
+    expect(screen.queryByTestId('shape-overlay')).toBeNull();
+
+    stroke([30, 30]);
+    stroke([2, 2]);
+    expect(screen.queryByTestId('shape-overlay')).toBeNull();
+
+    stroke([30, 30]);
+    keyDown('Escape');
+    expect(screen.queryByTestId('shape-overlay')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
+  it('draws a line from where it is pressed to where it is released, with both ends shown as anchors', async () => {
+    const { user } = await selectShapes();
+    await user.selectOptions(options().getByRole('combobox', { name: 'Shape' }), 'line');
+    stroke([10, 10], [50, 40]);
+    const overlay = screen.getByTestId('shape-overlay');
+    expect(overlay.querySelector('polyline')?.getAttribute('points')).toBe('10,10 50,40');
+    expect(screen.getAllByTestId('shape-endpoint')).toHaveLength(2);
+    expect(options().getByRole('slider', { name: 'Length' })).toHaveValue('50');
+    expect(options().getByRole('textbox', { name: 'Rotation in degrees' })).toHaveValue('36.9');
+  });
+
+  it('does not take Enter or Escape while a field is being edited', async () => {
+    const { user } = await selectShapes();
+    stroke([30, 30]);
+    const degrees = options().getByRole('textbox', { name: 'Rotation in degrees' });
+    await user.click(degrees);
+    keyDown('Enter', degrees);
+    keyDown('Escape', degrees);
+    expect(screen.getByTestId('shape-overlay')).toBeInTheDocument();
+  });
+
+  it('refuses to change the tool while a shape is pending and says why', async () => {
+    const { user } = await selectShapes();
+    stroke([30, 30]);
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    expect(screen.getByRole('button', { name: 'Geometric Shapes' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent(/pending shape/i);
+    expect(screen.getByTestId('shape-overlay')).toBeInTheDocument();
+
+    keyDown('Enter');
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    expect(screen.getByRole('button', { name: 'Brush' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('Selection Tool rotation', () => {
+  function gesture(target: Element, from: [number, number], to: [number, number]): void {
+    const base = { button: 0, pointerId: 1 };
+    fireEvent.pointerDown(target, { ...base, buttons: 1, clientX: from[0], clientY: from[1] });
+    fireEvent.pointerMove(target, { ...base, buttons: 1, clientX: to[0], clientY: to[1] });
+    fireEvent.pointerUp(target, { ...base, buttons: 0, clientX: to[0], clientY: to[1] });
+  }
+
+  it('shows a rotation handle, turns the selection with it and shows the angle on the box', async () => {
+    const { user } = await renderReadyEditor();
+    await user.click(screen.getByRole('button', { name: 'Brush' }));
+    stroke([20, 20]);
+    await user.click(screen.getByRole('button', { name: 'Selection Tool' }));
+    expect(screen.queryByTestId('selection-rotate-handle')).toBeNull();
+    gesture(canvas(), [10, 10], [30, 30]);
+    expect(screen.getByTestId('selection-rotate-handle')).toHaveAttribute('title', 'Rotate');
+    expect(screen.getByTestId('selection-box').style.transform).toBe('');
+
+    // The handle is 26 screen pixels above the top edge, at the middle: (20, 10 - 26).
+    gesture(screen.getByTestId('selection-overlay'), [20, -16], [56, 20]);
+    expect(screen.getByTestId('selection-box').style.transform).toBe('rotate(90deg)');
+    expect(screen.getByTestId('selection-box')).toHaveAttribute('data-pending', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.getByTestId('selection-box').style.transform).toBe('');
+    expect(screen.getByTestId('selection-box')).toHaveAttribute('data-pending', 'false');
+  });
+});
+
 describe('brush toggle buttons', () => {
   const TOGGLES = [
     ['Use Pen Pressure', 'Use pen pressure to control brush size'],
@@ -948,7 +1082,9 @@ describe('Bézier curves', () => {
     await selectBezier();
     const options = within(screen.getByRole('region', { name: 'Tool Options' }));
     expect(options.getByRole('combobox', { name: 'Brush Type' })).toBeInTheDocument();
-    expect(options.getByRole('textbox', { name: 'Size' })).toBeEnabled();
+    expect(options.getByRole('slider', { name: 'Size' })).toHaveAttribute('min', '1');
+    expect(options.getByRole('slider', { name: 'Size' })).toHaveAttribute('max', '500');
+    expect(options.queryByRole('textbox', { name: 'Size' })).toBeNull();
     expect(options.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
     expect(options.getByLabelText('Color')).toBeInTheDocument();
     expect(options.getByRole('button', { name: 'Use Pen Pressure' })).toBeDisabled();
@@ -967,16 +1103,27 @@ describe('Bézier curves', () => {
     expect(screen.getByRole('combobox', { name: 'Brush Type' })).toHaveValue('chalk');
   });
 
-  it('shows the anchors of the draft and finishes it with Enter', async () => {
+  it('changes the size with a slider from 1 to 500 and shows the value', async () => {
+    await selectBezier();
+    const slider = within(screen.getByRole('region', { name: 'Tool Options' })).getByRole('slider', { name: 'Size' });
+    expect(slider).toHaveValue('12');
+    for (const value of ['1', '500', '37']) {
+      fireEvent.change(slider, { target: { value } });
+      expect(slider).toHaveValue(value);
+      expect(slider.parentElement).toHaveTextContent(`${value}px`);
+    }
+  });
+
+  it('shows the anchors of the draft and paints it as ordinary artwork with Enter', async () => {
     await selectBezier();
     placeAnchors();
     expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'true');
     expect(anchors()).toHaveLength(2);
 
     keyDown('Enter');
-    expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'false');
-    expect(anchors()).toHaveLength(2);
-    expect(screen.getByRole('group', { name: 'Selected Curve' })).toBeInTheDocument();
+    expect(screen.queryByTestId('curve-overlay')).toBeNull();
+    expect(anchors()).toHaveLength(0);
+    expect(screen.queryByRole('group', { name: 'Selected Curve' })).toBeNull();
     expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
   });
 
@@ -992,8 +1139,8 @@ describe('Bézier curves', () => {
     await selectBezier();
     placeAnchors();
     fireEvent.doubleClick(canvas(), { clientX: 50, clientY: 30 });
-    expect(screen.getByTestId('curve-overlay')).toHaveAttribute('data-draft', 'false');
-    expect(anchors()).toHaveLength(2);
+    expect(screen.queryByTestId('curve-overlay')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Unsaved changes');
   });
 
   it('does not take Enter from a focused button', async () => {
@@ -1015,10 +1162,21 @@ describe('Bézier curves', () => {
     expect(screen.getByRole('status')).toHaveTextContent('All changes saved');
   });
 
-  it('deletes the selected curve from the options panel and brings it back with undo', async () => {
-    const { user } = await selectBezier();
-    placeAnchors();
-    keyDown('Enter');
+  /** Renders an editor whose first layer holds a curve stored by an older version of the application. */
+  async function renderStoredCurve() {
+    const stored: AnimationDocument = {
+      width: SIZE,
+      height: SIZE,
+      frames: [{ id: 'a', layers: [{ id: 'a1', name: 'Ink', visible: true, pixels: null, curves: [STORED_CURVE] }] }]
+    };
+    const result = await renderReadyEditor({ animationApi: createMockAnimationApi({ loadAnimation: async () => ok(stored) }) });
+    await result.user.click(screen.getByRole('button', { name: 'Bézier Curve' }));
+    stroke([30, 30]);
+    return result;
+  }
+
+  it('deletes a stored curve from the options panel and brings it back with undo', async () => {
+    const { user } = await renderStoredCurve();
     const group = screen.getByRole('group', { name: 'Selected Curve' });
     for (const button of within(group).getAllByRole('button')) {
       expect(button).toHaveAttribute('title', expect.stringMatching(/\S/));
@@ -1029,15 +1187,12 @@ describe('Bézier curves', () => {
     expect(screen.queryByRole('group', { name: 'Selected Curve' })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Undo' }));
-    await user.click(screen.getByRole('button', { name: 'Bézier Curve' }));
     stroke([30, 30]);
     expect(anchors()).toHaveLength(2);
   });
 
-  it('applies the current options to the selected curve only on request', async () => {
-    const { user, animationApi } = await selectBezier();
-    placeAnchors();
-    keyDown('Enter');
+  it('applies the current options to a stored curve only on request', async () => {
+    const { user, animationApi } = await renderStoredCurve();
     await user.selectOptions(screen.getByRole('combobox', { name: 'Brush Type' }), 'chalk');
     await user.click(screen.getByRole('button', { name: 'Save Project' }));
     await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalledTimes(1));
@@ -1049,19 +1204,15 @@ describe('Bézier curves', () => {
     expect(savedDocument(animationApi, 1).frames[0]?.layers[0]?.curves?.[0]?.style.brush).toBe('chalk');
   });
 
-  it('saves curves with the layer instead of in its pixels', async () => {
+  it('saves a confirmed curve as pixels of the layer, not as a curve', async () => {
     const { user, animationApi } = await selectBezier();
     placeAnchors();
     keyDown('Enter');
     await user.click(screen.getByRole('button', { name: 'Save Project' }));
     await waitFor(() => expect(animationApi.saveAnimation).toHaveBeenCalledTimes(1));
     const layer = savedDocument(animationApi).frames[0]?.layers[0];
-    expect(layer?.pixels).toBeNull();
-    expect(layer?.curves).toHaveLength(1);
-    expect(layer?.curves?.[0]?.anchors.map((item) => [item.x, item.y])).toEqual([
-      [10, 30],
-      [50, 30]
-    ]);
+    expect(layer?.pixels?.[(30 * SIZE + 30) * 4 + 3]).toBeGreaterThan(0);
+    expect(layer?.curves).toBeUndefined();
   });
 
   it('loads stored curves and lets the user select and delete them', async () => {

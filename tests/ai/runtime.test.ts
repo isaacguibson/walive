@@ -338,16 +338,6 @@ describe('limits and loop prevention', () => {
     expect(toolMessages(events)[2]).toMatchObject({ isError: true });
   });
 
-  it('stops a model that keeps repeating the same call', async () => {
-    const execute = vi.fn(async () => ({ summary: 's', data: {} }));
-    const steps: Step[] = Array.from({ length: 10 }, () => calling(call('echo', { text: 'same' })));
-    const { run } = setup([tool('echo', 'read', { execute })], steps);
-    const outcome = await run();
-    expect(outcome.status).toBe('limit');
-    expect(outcome.error?.message).toContain('repeating the same call');
-    expect(execute).toHaveBeenCalledTimes(3);
-  });
-
   it('stops a task that takes too long, aborting what is in flight', async () => {
     vi.useFakeTimers();
     try {

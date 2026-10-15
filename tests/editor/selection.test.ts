@@ -43,7 +43,7 @@ describe('selecting', () => {
 
   it('selects the dragged area without touching the layer or the history', () => {
     const session = selectedBlock();
-    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false });
+    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false, angle: 0 });
     expect(pixelAt(session, 3, 3)).toEqual(RED);
     expect(session.getSnapshot().canUndo).toBe(false);
     expect(session.getSnapshot().isDirty).toBe(false);
@@ -54,7 +54,7 @@ describe('selecting', () => {
     session.selectTool('select');
     session.pointerDown({ x: 2, y: 2, pointerId: 1, buttons: 1 });
     session.pointerMove({ x: 6, y: 5, pointerId: 1, buttons: 1 });
-    expect(selection(session)).toEqual({ rect: { x: 2, y: 2, width: 4, height: 3 }, creating: true, pending: false });
+    expect(selection(session)).toEqual({ rect: { x: 2, y: 2, width: 4, height: 3 }, creating: true, pending: false, angle: 0 });
     session.pointerUp({ x: 6, y: 5, pointerId: 1, buttons: 0 });
     expect(selection(session)?.creating).toBe(false);
   });
@@ -99,14 +99,14 @@ describe('moving', () => {
   it('does not move on a click inside', () => {
     const session = selectedBlock();
     click(session, 4, 4);
-    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false });
+    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false, angle: 0 });
     expect(session.getSnapshot().canUndo).toBe(false);
   });
 
   it('shows the move as a preview and leaves the layer untouched until it is applied', () => {
     const session = selectedBlock();
     moveBy(session, 6, 2);
-    expect(selection(session)).toEqual({ rect: { x: 8, y: 4, width: 4, height: 4 }, creating: false, pending: true });
+    expect(selection(session)).toEqual({ rect: { x: 8, y: 4, width: 4, height: 4 }, creating: false, pending: true, angle: 0 });
     expect(session.getSnapshot().canUndo).toBe(true);
     const preview = session.getSelectionPreview();
     expect(preview).toMatchObject({ source: BLOCK, rect: { x: 8, y: 4, width: 4, height: 4 } });
@@ -139,7 +139,7 @@ describe('moving', () => {
     const session = selectedBlock();
     moveBy(session, 6);
     drag(session, [10, 4], [4, 4]);
-    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false });
+    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false, angle: 0 });
     click(session, 15, 0);
     expect(session.getSnapshot().canUndo).toBe(false);
     expect(pixelAt(session, 3, 3)).toEqual(RED);
@@ -350,7 +350,7 @@ describe('confirming and cancelling', () => {
     const session = selectedBlock();
     moveBy(session, 6);
     expect(session.runShortcut('tool.cancel')).toBe(true);
-    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false });
+    expect(selection(session)).toEqual({ rect: BLOCK, creating: false, pending: false, angle: 0 });
     expect(session.getSelectionPreview()).toBeNull();
     expect(pixelAt(session, 3, 3)).toEqual(RED);
     expect(session.getSnapshot().canUndo).toBe(false);

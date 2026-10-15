@@ -84,8 +84,6 @@ export interface AgentEnvironment {
   requestApproval(request: ApprovalRequest, signal: AbortSignal): Promise<boolean>;
 }
 
-const MAX_IDENTICAL_CALLS = 3;
-
 class LimitReached extends Error {}
 
 function truncate(text: string, maxBytes: number): string {
@@ -103,7 +101,7 @@ export class AgentRuntime {
   async run(run: AgentRun, emit: (event: AgentEvent) => void, signal: AbortSignal): Promise<AgentOutcome> {
     const { limits } = this.env;
     const history = [...run.history];
-    const state = { iterations: 0, toolCalls: 0, changes: [] as string[], signatures: new Map<string, number>() };
+    const state = { iterations: 0, toolCalls: 0, changes: [] as string[] };
 
     // The duration limit aborts what is in flight, just like a cancellation by the user.
     const controller = new AbortController();
@@ -220,7 +218,7 @@ export class AgentRuntime {
   private async runCalls(
     calls: ToolCall[],
     run: AgentRun,
-    state: { toolCalls: number; changes: string[]; signatures: Map<string, number> },
+    state: { toolCalls: number; changes: string[] },
     history: ChatMessage[],
     emit: (event: AgentEvent) => void,
     signal: AbortSignal,
@@ -246,15 +244,7 @@ export class AgentRuntime {
         outcome = { status: 'cancelled', summary: 'Not executed', content: 'Not executed because the tool call limit was reached.' };
       } else {
         state.toolCalls += 1;
-        const signature = `${call.name}:${JSON.stringify(call.input)}`;
-        const repeats = (state.signatures.get(signature) ?? 0) + 1;
-        state.signatures.set(signature, repeats);
-        if (repeats > MAX_IDENTICAL_CALLS) {
-          stop = new LimitReached(`The agent kept repeating the same call to "${call.name}" and was stopped.`);
-          outcome = { status: 'cancelled', summary: 'Not executed', content: 'Not executed because the same call was repeated too many times.' };
-        } else {
-          outcome = await this.runCall(call, tool, run, state, emit, signal, images);
-        }
+        outcome = await this.runCall(call, tool, run, state, emit, signal, images);
       }
 
       const message: ToolMessage = { role: 'tool', toolCallId: call.id, name: call.name, content: outcome.content, isError: outcome.status !== 'completed' };

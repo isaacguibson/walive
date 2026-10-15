@@ -100,8 +100,8 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
       if (action === null) {
         return;
       }
-      // These keys belong to the Bézier and Selection tools and must not steal Enter, Escape or Delete from other tools or controls.
-      if (action.startsWith('tool.') && (!['bezier', 'select'].includes(session.getSnapshot().state.selectedTool) || isInteractiveTarget(event.target))) {
+      // These keys belong to the Bézier, Shape and Selection tools and must not steal Enter, Escape or Delete from other tools or controls.
+      if (action.startsWith('tool.') && (!['bezier', 'shape', 'select'].includes(session.getSnapshot().state.selectedTool) || isInteractiveTarget(event.target))) {
         return;
       }
       if (action === 'playback.toggle' && event.repeat) {
@@ -284,6 +284,16 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
                 onAnchorTypeChange: (type) => session.setSelectedAnchorType(type),
                 onRemoveAnchor: () => session.removeSelectedAnchor(),
                 onDeleteCurve: () => session.deleteSelectedCurve()
+              }}
+              shape={{
+                onKindChange: (kind) => session.setShapeKind(kind),
+                onSizeChange: (size) => session.setShapeSize(size),
+                onRotationChange: (degrees) => session.setShapeRotation(degrees),
+                onStrokeWidthChange: (width) => session.setShapeStrokeWidth(width),
+                onFillChange: (fill) => session.setShapeFill(fill),
+                onOpacityChange: (percent) => session.setShapeOpacity(percent),
+                onConfirm: () => session.finishShape(),
+                onCancel: () => session.cancelShape()
               }}
               onColorChange={(color) => session.setColor(color)}
               onBrushSizeChange={(size) => session.setBrushSize(size)}

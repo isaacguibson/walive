@@ -8,6 +8,7 @@ const TOOL_ICONS: Record<ToolType, IconName> = {
   bezier: 'bezier',
   eraser: 'eraser',
   fill: 'fill',
+  shape: 'shapes',
   select: 'select'
 };
 

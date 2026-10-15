@@ -2,6 +2,7 @@ import { AnimationEngine } from './animation/animationEngine';
 import { applicationFrameClipboard, type FrameClipboardStore } from './animation/clipboard';
 import { toAnimationDocument } from './animation/serialization';
 import { BrushConfig } from './brushes/brushConfig';
+import type { BrushCanvas } from './brushes/brush';
 import {
   DEFAULT_COLOR,
   DEFAULT_ERASER_SIZE,
@@ -11,13 +12,18 @@ import {
   MAX_CANVAS_PIXELS,
   STABILIZE_SCREEN_RADIUS
 } from './constants';
-import type { AnchorType, CurveStyle } from './curves/curve';
+import type { AnchorType, BezierCurve, CurveAnchor, CurveStyle } from './curves/curve';
+import { isDrawableCurve } from './curves/editing';
+import { paintCurveStroke } from './curves/render';
+import { createDrawing, markDirty } from './drawing/raster';
 import { EditorError } from './errors';
 import type {
   CurveEditorState,
+  DrawingData,
   EditorState,
   Frame,
   Layer,
+  Point,
   SelectionOptions,
   SelectionPreview,
   SelectionResampling,
@@ -26,6 +32,20 @@ import type {
 } from './model';
 import { PlaybackController, browserClock, type PlaybackClock } from './playback/playbackController';
 import type { ShortcutAction } from './shortcuts/shortcuts';
+import {
+  DEFAULT_SHAPE_OPTIONS,
+  MAX_SHAPE_SIZE,
+  MAX_SHAPE_STROKE,
+  MIN_SHAPE_SIZE,
+  MIN_SHAPE_STROKE,
+  SHAPE_KINDS,
+  type Shape,
+  type ShapeEditorState,
+  type ShapeKind,
+  type ShapeOptions
+} from './shapes/geometry';
+import { paintShape } from './shapes/render';
+import { normalizeDegrees } from './angles';
 import { createTools, type Tools } from './tools';
 import type { ToolContext, ToolPointerEvent } from './tools/tool';
 import { parseFps, parseHexColor, parseToolSize, parseZoom } from './validation';
@@ -64,6 +84,13 @@ export interface EditorSnapshot {
   readonly error: string | null;
 }
 
+const PENDING_SHAPE_MESSAGE = 'Confirm the pending shape (Enter or click outside it) or cancel it (Esc) first.';
+
+function parseShapeNumber(value: string | number, min: number, max: number): number | null {
+  const parsed = typeof value === 'number' ? value : value.trim() === '' ? NaN : Number(value);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : null;
+}
+
 export function isSupportedCanvasSize(width: number, height: number): boolean {
   return (
     Number.isInteger(width) &&
@@ -98,6 +125,11 @@ export class EditorSession {
   private readonly brush = new BrushConfig();
   private readonly curveBrush = new BrushConfig();
   private curveEditor: CurveEditorState = { draft: null, selectedCurveId: null, selectedAnchor: null };
+  private shapeOptions: ShapeOptions = DEFAULT_SHAPE_OPTIONS;
+  private shapeEditor: ShapeEditorState = { pending: null };
+  /** Raster of the curve or shape that is pending, drawn over the active layer by the canvas only. */
+  private readonly pendingRaster: DrawingData;
+  private pendingSource: BezierCurve | Shape | null = null;
   private selection: SelectionState | null = null;
   private selectionOptions: SelectionOptions = { keepAspectRatio: false, resampling: 'smooth' };
   private readonly strokeSeed: () => number;
@@ -118,6 +150,7 @@ export class EditorSession {
     }
     this.clipboard = options.clipboard ?? applicationFrameClipboard;
     this.strokeSeed = options.strokeSeed ?? (() => Math.floor(Math.random() * 0x1_0000_0000));
+    this.pendingRaster = createDrawing(options.width, options.height);
     this.engine = new AnimationEngine({
       width: options.width,
       height: options.height,
@@ -192,17 +225,19 @@ export class EditorSession {
         eraserSize: this.eraserSize,
         curveBrush: this.curveBrush.state,
         curveEditor: this.curveEditor,
+        shape: this.shapeOptions,
+        shapeEditor: this.shapeEditor,
         selection: this.selection,
         selectionOptions: this.selectionOptions
       },
       frames: this.engine.getFrames(),
       activeFrame,
       activeLayer: this.engine.getActiveLayer(),
-      canUndo: this.engine.canUndo || this.tools.select.hasPending(),
+      canUndo: this.engine.canUndo || this.tools.select.hasPending() || this.shapeEditor.pending !== null,
       canRedo: this.engine.canRedo,
       canPaste: clipboardValue !== null,
-      // A transformation that is still waiting to be applied is a change that has not been saved.
-      isDirty: this.engine.isDirty || this.tools.select.hasPending(),
+      // A transformation or shape that is still waiting to be applied is a change that has not been saved.
+      isDirty: this.engine.isDirty || this.tools.select.hasPending() || this.shapeEditor.pending !== null,
       onionEnabled: this.onionEnabled,
       manualReferenceFrameId: this.engine.manualReferenceFrameId,
       error: this.error
@@ -214,6 +249,10 @@ export class EditorSession {
 
   selectTool(tool: ToolType): void {
     if (tool === this.selectedTool || this.activePointerId !== null) {
+      return;
+    }
+    if (this.shapeEditor.pending !== null) {
+      this.reportError(PENDING_SHAPE_MESSAGE);
       return;
     }
     this.tools[this.selectedTool].deactivate();
@@ -228,6 +267,7 @@ export class EditorSession {
       return false;
     }
     this.color = value.toLowerCase();
+    this.restylePending();
     this.bump();
     return true;
   }
@@ -252,22 +292,54 @@ export class EditorSession {
     this.changeBrush(this.brush.setOpacity(percent));
   }
 
-  /** Options of new curves. They have no effect on curves that already exist (see `applyCurveStyle`). */
+  /** Options of new curves; a curve that is still pending follows them. A curve already on the layer needs `applyCurveStyle`. */
   setCurveSize(value: string | number): boolean {
-    return this.changeBrush(this.curveBrush.setSize(value));
+    return this.changeCurveBrush(this.curveBrush.setSize(value));
   }
 
   setCurveBrushType(id: string): void {
-    this.changeBrush(this.curveBrush.setType(id));
+    this.changeCurveBrush(this.curveBrush.setType(id));
   }
 
   setCurveBrushSetting(key: string, value: number): void {
     this.curveBrush.setSetting(key, value);
+    this.restylePending();
     this.bump();
   }
 
   setCurveOpacity(percent: number): void {
-    this.changeBrush(this.curveBrush.setOpacity(percent));
+    this.changeCurveBrush(this.curveBrush.setOpacity(percent));
+  }
+
+  // ---- Geometric Shapes options (a pending shape follows them) -----------
+
+  setShapeKind(kind: ShapeKind): boolean {
+    return SHAPE_KINDS.some((candidate) => candidate.id === kind) && this.changeShape({ kind });
+  }
+
+  setShapeSize(value: string | number): boolean {
+    const size = parseShapeNumber(value, MIN_SHAPE_SIZE, MAX_SHAPE_SIZE);
+    return size !== null && this.changeShape({ size: Math.round(size) });
+  }
+
+  /** Degrees, clockwise; any finite value is accepted and brought into -180 to 180. */
+  setShapeRotation(value: string | number): boolean {
+    const degrees = parseShapeNumber(value, -Infinity, Infinity);
+    return degrees !== null && this.changeShape({ rotation: Math.round(normalizeDegrees(degrees) * 10) / 10 });
+  }
+
+  setShapeStrokeWidth(value: string | number): boolean {
+    const width = parseShapeNumber(value, MIN_SHAPE_STROKE, MAX_SHAPE_STROKE);
+    return width !== null && this.changeShape({ strokeWidth: Math.round(width) });
+  }
+
+  setShapeFill(fill: boolean): void {
+    this.changeShape({ fill });
+  }
+
+  setShapeOpacity(percent: number): boolean {
+    const opacity = parseShapeNumber(percent, 0, 100);
+    return opacity !== null && this.changeShape({ opacity: Math.round(opacity) });
   }
 
   setUsePenPressure(enabled: boolean): void {
@@ -416,6 +488,66 @@ export class EditorSession {
     this.curveAction((tool) => tool.applyStyle());
   }
 
+  // ---- Geometric Shapes (act on the pending shape) ------------------------
+
+  /** Paints `shape` on the active layer as ordinary pixels and one undo step, without using the tool or its pending shape. */
+  drawShape(shape: Shape): boolean {
+    return this.edit(() => this.paintStroke('Shape', (canvas) => paintShape(shape, canvas))) === true;
+  }
+
+  /** Paints a Bézier path on the active layer as ordinary pixels and one undo step; the curve is not kept. */
+  drawCurve(anchors: CurveAnchor[], style: Omit<CurveStyle, 'seed'>): boolean {
+    const curve: BezierCurve = { id: this.engine.createId(), anchors, style: { ...style, seed: this.strokeSeed() } };
+    if (!isDrawableCurve(curve)) {
+      this.reportError('The curve needs two anchors that are not in the same place.');
+      return false;
+    }
+    return this.edit(() => this.paintStroke('Bézier curve', (canvas) => paintCurveStroke(curve, canvas))) === true;
+  }
+
+  /** Applies the transformation the Selection Tool is holding, as one undo step, and clears the selection. */
+  commitSelection(): void {
+    if (this.activePointerId === null) {
+      this.guardTool(() => this.tools.select.settle());
+    }
+  }
+
+  /** Paints the pending shape on the active layer as ordinary pixels. Does nothing without a pending shape. */
+  finishShape(): void {
+    this.shapeAction((tool) => tool.confirm());
+  }
+
+  /** Discards the pending shape; the project is not touched. */
+  cancelShape(): void {
+    this.shapeAction((tool) => tool.cancel());
+  }
+
+  /** The curve or shape waiting to be confirmed, drawn the way it will be painted; shown over the active layer only. */
+  getPendingPreview(): { layerId: string; drawing: DrawingData } | null {
+    const source = this.curveEditor.draft ?? this.shapeEditor.pending;
+    if (source === null || (!('kind' in source) && !isDrawableCurve(source))) {
+      this.pendingSource = null;
+      return null;
+    }
+    if (source !== this.pendingSource) {
+      this.pendingSource = source;
+      const raster = this.pendingRaster;
+      raster.data?.fill(0);
+      const canvas: BrushCanvas = {
+        apply: (operation) => {
+          operation(raster, null);
+        }
+      };
+      if ('kind' in source) {
+        paintShape(source, canvas);
+      } else {
+        paintCurveStroke(source, canvas);
+      }
+      markDirty(raster, { x: 0, y: 0, width: raster.width, height: raster.height });
+    }
+    return { layerId: this.engine.activeLayerId, drawing: this.pendingRaster };
+  }
+
   // ---- Selection Tool ----------------------------------------------------
 
   /** Reverts a transformation waiting to be applied (nothing is recorded in the history); without one, clears the selection. */
@@ -462,7 +594,7 @@ export class EditorSession {
   }
 
   play(): boolean {
-    if (this.activePointerId !== null) {
+    if (this.activePointerId !== null || this.holdsShape()) {
       return false;
     }
     this.settlePending();
@@ -510,7 +642,7 @@ export class EditorSession {
   // ---- Selection ---------------------------------------------------------
 
   selectFrame(frameId: string): void {
-    if (this.activePointerId !== null) {
+    if (this.activePointerId !== null || this.holdsShape()) {
       return;
     }
     this.playback.stop();
@@ -519,7 +651,7 @@ export class EditorSession {
   }
 
   selectLayer(layerId: string): void {
-    if (this.activePointerId !== null) {
+    if (this.activePointerId !== null || this.holdsShape()) {
       return;
     }
     this.playback.stop();
@@ -631,6 +763,10 @@ export class EditorSession {
       this.cancelCurve();
       return;
     }
+    if (this.shapeEditor.pending !== null) {
+      this.tools.shape.cancel();
+      return;
+    }
     if (this.tools.select.hasPending()) {
       this.cancelSelection();
       return;
@@ -681,6 +817,14 @@ export class EditorSession {
             this.cancelSelection();
           }
           return action === 'tool.cancel';
+        }
+        if (this.selectedTool === 'shape') {
+          if (action === 'tool.finish') {
+            this.finishShape();
+          } else if (action === 'tool.cancel') {
+            this.cancelShape();
+          }
+          return action !== 'tool.delete';
         }
         if (this.selectedTool !== 'bezier') {
           return false;
@@ -745,9 +889,9 @@ export class EditorSession {
     this.listeners.forEach((listener) => listener());
   }
 
-  /** Runs an editing operation unless playback or a drawing gesture is in progress. */
+  /** Runs an editing operation unless playback, a drawing gesture or a pending shape is in progress. */
   private edit<T>(operation: () => T): T | undefined {
-    if (this.playback.isPlaying || this.activePointerId !== null) {
+    if (this.playback.isPlaying || this.activePointerId !== null || this.holdsShape()) {
       return undefined;
     }
     this.settlePending();
@@ -777,6 +921,48 @@ export class EditorSession {
       this.bump();
     }
     return applied;
+  }
+
+  private changeCurveBrush(applied: boolean): boolean {
+    if (applied) {
+      this.restylePending();
+    }
+    return this.changeBrush(applied);
+  }
+
+  /** A pending curve or shape takes the current options, so that its preview and its result follow them. */
+  private restylePending(): void {
+    this.tools.bezier.restyleDraft();
+    this.tools.shape.refresh();
+  }
+
+  private changeShape(patch: Partial<ShapeOptions>): boolean {
+    this.shapeOptions = { ...this.shapeOptions, ...patch };
+    this.tools.shape.refresh();
+    this.bump();
+    return true;
+  }
+
+  /** Changing frame, layer or playback would leave a pending shape on the wrong content, so it is refused. */
+  private holdsShape(): boolean {
+    if (this.shapeEditor.pending === null) {
+      return false;
+    }
+    this.reportError(PENDING_SHAPE_MESSAGE);
+    return true;
+  }
+
+  private paintStroke(label: string, paint: (canvas: BrushCanvas) => void): boolean {
+    const stroke = this.engine.beginStroke(label);
+    paint(stroke);
+    return stroke.commit();
+  }
+
+  private shapeAction(action: (tool: Tools['shape']) => void): void {
+    if (this.playback.isPlaying || this.activePointerId !== null || this.selectedTool !== 'shape') {
+      return;
+    }
+    this.guardTool(() => action(this.tools.shape));
   }
 
   private run<T>(operation: () => T): T | undefined {
@@ -870,6 +1056,15 @@ export class EditorSession {
         return layer === null ? null : { layerId: layer.id, drawing: layer.drawing };
       },
       getSelectionOptions: () => this.selectionOptions,
+      newShape: (center: Point): Shape => ({ ...this.shapeOptions, center, color: this.color }),
+      setShapeOptions: (patch) => {
+        this.shapeOptions = { ...this.shapeOptions, ...patch };
+        this.bump();
+      },
+      setShapeEditor: (state) => {
+        this.shapeEditor = state;
+        this.bump();
+      },
       setSelection: (state) => {
         if (state === null && this.selection === null) {
           return;

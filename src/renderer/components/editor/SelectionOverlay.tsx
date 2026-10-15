@@ -2,8 +2,8 @@ import type { DOMAttributes } from 'react';
 import type { SelectionState } from '@editor/model';
 import { RESIZE_HANDLES, RESIZE_HANDLE_LABELS } from '@editor/placement';
 
-/** Room around the canvas where the overlay still takes the pointer, so handles on its border stay reachable. */
-const BORDER_MARGIN = 14;
+/** Room around the canvas where the overlay still takes the pointer, so handles on its border (and the rotation handle above it) stay reachable. */
+const BORDER_MARGIN = 40;
 
 interface SelectionOverlayProps {
   selection: SelectionState;
@@ -22,7 +22,7 @@ interface SelectionOverlayProps {
  * editor from the pointer position; the handles only give the cursor and the look.
  */
 export function SelectionOverlay({ selection, width, height, pointerHandlers }: SelectionOverlayProps) {
-  const { rect, creating, pending } = selection;
+  const { rect, creating, pending, angle } = selection;
   return (
     <div
       className="selection-overlay"
@@ -40,9 +40,11 @@ export function SelectionOverlay({ selection, width, height, pointerHandlers }: 
             left: `${(rect.x / width) * 100}%`,
             top: `${(rect.y / height) * 100}%`,
             width: `${(rect.width / width) * 100}%`,
-            height: `${(rect.height / height) * 100}%`
+            height: `${(rect.height / height) * 100}%`,
+            transform: angle === 0 ? undefined : `rotate(${angle}deg)`
           }}
         >
+          {!creating && <div className="selection-rotate-handle" data-testid="selection-rotate-handle" title="Rotate" />}
           {!creating &&
             RESIZE_HANDLES.map((handle) => (
               <div

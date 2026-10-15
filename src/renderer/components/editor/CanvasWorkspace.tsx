@@ -25,6 +25,7 @@ import { ASSET_DRAG_MIME } from '@shared/types/assets';
 import { CanvasRenderer } from '../../services/canvasRenderer';
 import { CurveOverlay } from './CurveOverlay';
 import { SelectionOverlay } from './SelectionOverlay';
+import { ShapeOverlay } from './ShapeOverlay';
 
 interface CanvasWorkspaceProps {
   session: EditorSession;
@@ -151,7 +152,7 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     }
     const renderer = new CanvasRenderer(canvas, width, height);
     rendererRef.current = renderer;
-    const draw = () => renderer.render(session.engine.getActiveFrame(), session.getSelectionPreview());
+    const draw = () => renderer.render(session.engine.getActiveFrame(), session.getSelectionPreview(), session.getPendingPreview());
     draw();
     const stopContent = session.engine.subscribeContent(draw);
     const stopStructure = session.engine.subscribe(draw);
@@ -162,10 +163,10 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
     };
   }, [session, width, height]);
 
-  // The Selection Tool shows a transformation over the layer before it is applied; redraw when it changes.
+  // The Selection Tool and the pending curve or shape show their result over the layer before it is applied; redraw when it changes.
   useEffect(() => {
-    rendererRef.current?.render(session.engine.getActiveFrame(), session.getSelectionPreview());
-  }, [session, selection, selectionOptions.resampling]);
+    rendererRef.current?.render(session.engine.getActiveFrame(), session.getSelectionPreview(), session.getPendingPreview());
+  }, [session, selection, selectionOptions.resampling, snapshot.state.curveEditor.draft, snapshot.state.shapeEditor.pending]);
 
   // The placement only makes sense while its layer is in the active frame (undo, frame changes, deletion).
   useEffect(() => {
@@ -552,6 +553,9 @@ export function CanvasWorkspace({ session, snapshot, assetsApi }: CanvasWorkspac
               height={height}
               scale={scale}
             />
+          )}
+          {selectedTool === 'shape' && snapshot.state.shapeEditor.pending !== null && !isPlaying && (
+            <ShapeOverlay shape={snapshot.state.shapeEditor.pending} width={width} height={height} scale={scale} />
           )}
           {selectedTool === 'select' && selection !== null && !isPlaying && (
             <SelectionOverlay selection={selection} width={width} height={height} pointerHandlers={pointerHandlers} />

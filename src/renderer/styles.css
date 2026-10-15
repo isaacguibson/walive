@@ -336,6 +336,14 @@ p {
   align-items: center;
 }
 
+.field .degrees-input {
+  flex: 0 0 56px;
+  width: 56px;
+  min-width: 0;
+  padding: 4px 6px;
+  text-align: right;
+}
+
 .canvas-field {
   margin-top: 4px;
 }
@@ -1677,6 +1685,32 @@ label[for='keep-aspect-ratio'] {
 
 .selection-box[data-creating='true'] {
   pointer-events: none;
+}
+
+/* Sits above the top edge at the distance the editor uses to hit test it (SELECTION_ROTATE_HANDLE_SCREEN_PX). */
+.selection-rotate-handle {
+  position: absolute;
+  top: -32px;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+  cursor: grab;
+}
+
+.selection-rotate-handle::after {
+  position: absolute;
+  top: 11px;
+  left: 4px;
+  width: 1px;
+  height: 20px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 55%);
+  content: '';
 }
 
 .placement-bar {

@@ -14,7 +14,8 @@ import {
   smoothAnchor
 } from '@editor/curves/editing';
 import { distance, flattenAnchors, nearestOnPath, pathLength, segmentOf, splitSegment } from '@editor/curves/geometry';
-import { compositePixel } from '@editor/drawing/raster';
+import { compositePixel, getPixel } from '@editor/drawing/raster';
+import type { DrawingData } from '@editor/model';
 import type { EditorSession } from '@editor/editorSession';
 import { CURVE_LIMITS } from '@shared/types/curves';
 import { click, drag, makeSession, SIZE } from './helpers';
@@ -44,20 +45,35 @@ const curvesOf = (session: EditorSession): readonly BezierCurve[] => session.get
 const editorOf = (session: EditorSession) => session.getSnapshot().state.curveEditor;
 const pixel = (session: EditorSession, x: number, y: number) => compositePixel([session.getSnapshot().activeLayer], x, y);
 
-/** Clicks the points and finishes the path. */
-function draw(session: EditorSession, points: [number, number][]): void {
-  for (const [x, y] of points) {
-    click(session, x, y);
-  }
-  session.finishCurve();
+/** Puts a curve on the layer the way older projects stored it (the tool itself no longer creates these) and selects it. */
+function storeCurve(session: EditorSession, anchors: CurveAnchor[]): void {
+  const edit = session.engine.beginCurveEdit('Create curve');
+  edit.update([...curvesOf(session), { ...curveOf(...anchors), id: session.engine.createId() }]);
+  edit.commit();
+  const first = anchors[0] as CurveAnchor;
+  const second = anchors[1] as CurveAnchor;
+  click(session, (first.x + second.x) / 2, (first.y + second.y) / 2);
 }
 
-/** A straight horizontal curve from (2, 8) to (14, 8). */
+/** Stores a curve through `points`. */
+function draw(session: EditorSession, points: [number, number][]): void {
+  storeCurve(
+    session,
+    points.map(([x, y]) => anchor(x, y))
+  );
+}
+
+/** A stored curve that is straight and horizontal from (2, 8) to (14, 8). */
 function drawLine(session: EditorSession): void {
   draw(session, [
     [2, 8],
     [14, 8]
   ]);
+}
+
+/** A stored curve with a smooth middle anchor whose handle ends at (12, 4). */
+function drawSmooth(session: EditorSession): void {
+  storeCurve(session, [anchor(2, 8), anchor(8, 8, 'smooth', { x: -4, y: 4 }, { x: 4, y: -4 })]);
 }
 
 describe('curve geometry', () => {
@@ -163,22 +179,24 @@ describe('curve editing', () => {
 });
 
 describe('Bézier tool', () => {
-  it('shows a draft while drawing and creates the curve when finished', () => {
+  it('shows a draft while drawing and paints it as ordinary artwork when finished', () => {
     const session = curveSession();
     click(session, 2, 8);
     click(session, 14, 8);
     expect(editorOf(session).draft?.anchors).toHaveLength(2);
-    expect(curvesOf(session)).toHaveLength(0);
+    expect(session.getSnapshot().activeLayer.drawing.data).toBeNull();
 
     expect(session.runShortcut('tool.finish')).toBe(true);
-    expect(editorOf(session).draft).toBeNull();
-    expect(curvesOf(session)).toHaveLength(1);
-    expect(editorOf(session).selectedCurveId).toBe(curvesOf(session)[0]?.id);
+    expect(editorOf(session)).toEqual({ draft: null, selectedCurveId: null, selectedAnchor: null });
+    expect(curvesOf(session)).toHaveLength(0);
+    expect(pixel(session, 8, 8)?.[3]).toBeGreaterThan(0);
   });
 
   it('renders the curve with the chosen color and no pixels away from it', () => {
     const session = curveSession();
-    drawLine(session);
+    click(session, 2, 8);
+    click(session, 14, 8);
+    session.finishCurve();
     const on = pixel(session, 8, 8);
     expect(on?.[0]).toBe(255);
     expect(on?.[1]).toBe(0);
@@ -187,34 +205,217 @@ describe('Bézier tool', () => {
     expect(pixel(session, 8, 13)).toBeNull();
   });
 
-  it('keeps the curve out of the layer pixels', () => {
+  it('writes exactly the pixels a brush stroke along the same path would', () => {
+    const curved = curveSession();
+    click(curved, 2, 8);
+    click(curved, 14, 8);
+    curved.finishCurve();
+
+    const brushed = makeSession();
+    brushed.setColor('#ff0000');
+    brushed.setBrushSize(2);
+    brushed.setBrushOpacity(100);
+    brushed.pointerDown({ x: 2, y: 8, pointerId: 1, buttons: 1 });
+    brushed.pointerUp({ x: 14, y: 8, pointerId: 1, buttons: 0 });
+    expect(Array.from(curved.getSnapshot().activeLayer.drawing.data ?? [])).toEqual(Array.from(brushed.getSnapshot().activeLayer.drawing.data ?? []));
+  });
+
+  it('is one undo step that removes the artwork, and redo paints it again', () => {
     const session = curveSession();
-    drawLine(session);
+    click(session, 2, 8);
+    click(session, 14, 8);
+    session.finishCurve();
+    expect(session.getSnapshot().canUndo).toBe(true);
+    session.undo();
+    expect(pixel(session, 8, 8)).toBeNull();
+    expect(session.getSnapshot().canUndo).toBe(false);
+    session.redo();
+    expect(pixel(session, 8, 8)?.[3]).toBeGreaterThan(0);
+  });
+
+  it('paints with the size and opacity chosen before confirming', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    session.setCurveSize(10);
+    session.setCurveOpacity(40);
+    expect(editorOf(session).draft?.style).toMatchObject({ size: 10, opacity: 40 });
+    session.finishCurve();
+    expect(pixel(session, 8, 11)?.[3]).toBeGreaterThan(0);
+    const alpha = pixel(session, 8, 8)?.[3] ?? 0;
+    expect(alpha).toBeGreaterThan(90);
+    expect(alpha).toBeLessThan(115);
+  });
+
+  it('accepts sizes from 1 to 500 and rejects the rest', () => {
+    const session = curveSession();
+    expect(session.setCurveSize(1)).toBe(true);
+    expect(session.getSnapshot().state.curveBrush.size).toBe(1);
+    expect(session.setCurveSize(500)).toBe(true);
+    expect(session.getSnapshot().state.curveBrush.size).toBe(500);
+    expect(session.setCurveSize(501)).toBe(false);
+    expect(session.setCurveSize(0)).toBe(false);
+    expect(session.getSnapshot().state.curveBrush.size).toBe(500);
+  });
+
+  it('follows the options with its preview while it is pending, without touching the layer', () => {
+    const session = curveSession();
+    expect(session.getPendingPreview()).toBeNull();
+    click(session, 2, 8);
+    expect(session.getPendingPreview()).toBeNull();
+    click(session, 14, 8);
+    const preview = session.getPendingPreview();
+    expect(preview?.layerId).toBe(session.getSnapshot().activeLayer.id);
+    expect(getPixel(preview?.drawing as DrawingData, 8, 8)[3]).toBeGreaterThan(0);
+    expect(getPixel(preview?.drawing as DrawingData, 8, 11)[3]).toBe(0);
     expect(session.getSnapshot().activeLayer.drawing.data).toBeNull();
+
+    session.setCurveSize(10);
+    expect(getPixel(session.getPendingPreview()?.drawing as DrawingData, 8, 11)[3]).toBeGreaterThan(0);
+    session.setColor('#00ff00');
+    expect(getPixel(session.getPendingPreview()?.drawing as DrawingData, 8, 8).slice(0, 3)).toEqual([0, 255, 0]);
+
+    session.cancelCurve();
+    expect(session.getPendingPreview()).toBeNull();
+    expect(session.getSnapshot().activeLayer.drawing.data).toBeNull();
+  });
+
+  it('stores the confirmed artwork as pixels, not as a curve', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    session.finishCurve();
+    const { document } = session.createSaveRequest();
+    expect(document.frames[0]?.layers[0]?.pixels).not.toBeNull();
+    expect(document.frames[0]?.layers[0]).not.toHaveProperty('curves');
+    const restored = makeSession({ frames: framesFromAnimationDocument(document, SIZE, SIZE) });
+    expect(pixel(restored, 8, 8)).toEqual(pixel(session, 8, 8));
+  });
+
+  it('can be selected and moved with the Selection Tool once confirmed', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    session.finishCurve();
+    session.selectTool('select');
+    drag(session, [0, 5], [16, 11]);
+    drag(session, [8, 8], [8, 11]);
+    session.selectTool('brush');
+    expect(pixel(session, 8, 8)).toBeNull();
+    expect(pixel(session, 8, 11)?.[3]).toBeGreaterThan(0);
   });
 
   it('shapes a new anchor by dragging its handles', () => {
     const session = curveSession();
     click(session, 2, 8);
     drag(session, [8, 8], [12, 4]);
-    session.finishCurve();
-    const second = curvesOf(session)[0]?.anchors[1] as CurveAnchor;
+    const second = editorOf(session).draft?.anchors[1] as CurveAnchor;
     expect(second.type).toBe('smooth');
     expect(second.handleOut).toEqual({ x: 4, y: -4 });
-    expect(second.handleIn).toEqual({ x: -4, y: 4 });
+    expect(second.handleIn.x * second.handleOut.y - second.handleIn.y * second.handleOut.x).toBeCloseTo(0);
+    expect(second.handleIn.x).toBeLessThan(0);
+    expect(second.handleIn.y).toBeGreaterThan(0);
+  });
+
+  it('shows the handles of a segment as soon as its second anchor is placed, on both sides of every anchor', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    expect(editorOf(session).draft?.anchors[0]).toMatchObject({ handleIn: NO_HANDLE, handleOut: NO_HANDLE });
+    click(session, 14, 8);
+    const [first, second] = editorOf(session).draft?.anchors as CurveAnchor[];
+    expect(first).toMatchObject({ handleIn: { x: -4, y: 0 }, handleOut: { x: 4, y: 0 } });
+    expect(second).toMatchObject({ handleIn: { x: -4, y: 0 }, handleOut: { x: 4, y: 0 } });
+    expect(pixel(session, 8, 5)).toBeNull();
+    expect(getPixel(session.getPendingPreview()?.drawing as DrawingData, 8, 8)[3]).toBeGreaterThan(0);
+  });
+
+  it('gives a new segment its own handles, keeping both handles on the anchors it joins', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 8, 8);
+    click(session, 8, 14);
+    const [first, middle, last] = editorOf(session).draft?.anchors as CurveAnchor[];
+    expect(first).toMatchObject({ handleIn: { x: -2, y: 0 }, handleOut: { x: 2, y: 0 } });
+    expect(middle).toMatchObject({ handleIn: { x: -2, y: 0 }, handleOut: { x: 0, y: 2 } });
+    expect(last).toMatchObject({ handleIn: { x: 0, y: -2 }, handleOut: { x: 0, y: 2 } });
+  });
+
+  it('keeps an outer handle the user moved and uses it for the next segment', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    drag(session, [18, 8], [14, 4]);
+    expect(editorOf(session).draft?.anchors).toHaveLength(2);
+    expect(editorOf(session).draft?.anchors[1]?.handleOut).toEqual({ x: 0, y: -4 });
+    click(session, 14, 1);
+    expect(editorOf(session).draft?.anchors[1]?.handleOut).toEqual({ x: 0, y: -4 });
+  });
+
+  it('edits the pending path by pressing on its anchors, never adding a line to where it was pressed', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    drag(session, [14, 8], [14, 12]);
+    const anchors = editorOf(session).draft?.anchors as CurveAnchor[];
+    expect(anchors).toHaveLength(2);
+    expect(anchors[1]).toMatchObject({ x: 14, y: 12 });
+    expect(editorOf(session).selectedAnchor).toBe(1);
+
+    click(session, 2, 8);
+    expect(editorOf(session).draft?.anchors).toHaveLength(2);
+    expect(editorOf(session).selectedAnchor).toBe(0);
+  });
+
+  it('bends the pending path by dragging one of its handles, and the preview follows', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    drag(session, [6, 8], [6, 2]);
+    const anchors = editorOf(session).draft?.anchors as CurveAnchor[];
+    expect(anchors).toHaveLength(2);
+    expect(anchors[0]?.handleOut).toEqual({ x: 4, y: -6 });
+    expect(anchors[1]?.handleIn).toEqual({ x: -4, y: 0 });
+    const preview = session.getPendingPreview()?.drawing as DrawingData;
+    expect(getPixel(preview, 8, 6)[3]).toBeGreaterThan(0);
+    expect(getPixel(preview, 8, 8)[3]).toBe(0);
+
+    session.finishCurve();
+    expect(pixel(session, 8, 6)?.[3]).toBeGreaterThan(0);
+    expect(session.getSnapshot().canUndo).toBe(true);
+  });
+
+  it('still adds an anchor when pressing away from the controls of the pending path', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 14, 8);
+    click(session, 8, 3);
+    expect(editorOf(session).draft?.anchors).toHaveLength(3);
+  });
+
+  it('removes the selected anchor of the pending path with the Delete action', () => {
+    const session = curveSession();
+    click(session, 2, 8);
+    click(session, 8, 3);
+    click(session, 14, 8);
+    click(session, 8, 3);
+    session.runShortcut('tool.delete');
+    expect(editorOf(session).draft?.anchors.map((item) => [item.x, item.y])).toEqual([
+      [2, 8],
+      [14, 8]
+    ]);
   });
 
   it('discards a path with a single anchor or with the Escape action', () => {
     const session = curveSession();
     click(session, 2, 8);
     session.finishCurve();
-    expect(curvesOf(session)).toHaveLength(0);
+    expect(session.getSnapshot().activeLayer.drawing.data).toBeNull();
     expect(editorOf(session).draft).toBeNull();
 
     click(session, 2, 8);
     click(session, 14, 8);
     expect(session.runShortcut('tool.cancel')).toBe(true);
-    expect(curvesOf(session)).toHaveLength(0);
+    expect(session.getSnapshot().activeLayer.drawing.data).toBeNull();
     expect(editorOf(session).draft).toBeNull();
     expect(session.getSnapshot().canUndo).toBe(false);
   });
@@ -224,8 +425,10 @@ describe('Bézier tool', () => {
     click(session, 2, 8);
     click(session, 14, 8);
     click(session, 14, 8);
+    expect(editorOf(session).draft?.anchors).toHaveLength(2);
     session.doubleClick({ x: 14, y: 8, pointerId: 1, buttons: 0 });
-    expect(curvesOf(session)[0]?.anchors).toHaveLength(2);
+    expect(editorOf(session).draft).toBeNull();
+    expect(pixel(session, 8, 8)?.[3]).toBeGreaterThan(0);
   });
 
   it('removes the last anchor of a draft with the Delete action', () => {
@@ -301,9 +504,7 @@ describe('Bézier tool', () => {
 
   it('drags a handle and keeps a smooth anchor aligned', () => {
     const session = curveSession();
-    click(session, 2, 8);
-    drag(session, [8, 8], [12, 4]);
-    session.finishCurve();
+    drawSmooth(session);
     drag(session, [12, 4], [12, 2]);
     const { handleIn, handleOut } = curvesOf(session)[0]?.anchors[1] as CurveAnchor;
     expect(handleOut).toEqual({ x: 4, y: -6 });
@@ -326,9 +527,7 @@ describe('Bézier tool', () => {
 
   it('toggles an anchor between smooth and corner with a double-click', () => {
     const session = curveSession();
-    click(session, 2, 8);
-    drag(session, [8, 8], [12, 4]);
-    session.finishCurve();
+    drawSmooth(session);
     session.doubleClick({ x: 8, y: 8, pointerId: 1, buttons: 0 });
     expect(curvesOf(session)[0]?.anchors[1]?.type).toBe('corner');
     session.doubleClick({ x: 8, y: 8, pointerId: 1, buttons: 0 });
@@ -394,22 +593,23 @@ describe('Bézier tool', () => {
     expect(session.getSnapshot().state.brushSize).toBe(30);
   });
 
-  it('commits the draft when the tool changes', () => {
+  it('paints the draft when the tool changes', () => {
     const session = curveSession();
     click(session, 2, 8);
     click(session, 14, 8);
     session.selectTool('brush');
     expect(editorOf(session).draft).toBeNull();
-    expect(curvesOf(session)).toHaveLength(1);
+    expect(curvesOf(session)).toHaveLength(0);
+    expect(pixel(session, 8, 8)?.[3]).toBeGreaterThan(0);
   });
 
-  it('commits the draft on the original frame when the frame changes', () => {
+  it('paints the draft on the original frame when the frame changes', () => {
     const session = curveSession();
     click(session, 2, 8);
     click(session, 14, 8);
     session.addFrame();
-    expect(session.getSnapshot().frames[0]?.layers[0]?.curves).toHaveLength(1);
-    expect(curvesOf(session)).toHaveLength(0);
+    expect(getPixel(session.getSnapshot().frames[0]?.layers[0]?.drawing as DrawingData, 8, 8)[3]).toBeGreaterThan(0);
+    expect(pixel(session, 8, 8)).toBeNull();
   });
 
   it('discards a draft with undo without touching the history', () => {
@@ -467,11 +667,9 @@ describe('Bézier tool', () => {
 });
 
 describe('curve serialization', () => {
-  it('round-trips curves through the stored document', () => {
+  it('round-trips stored curves through the stored document', () => {
     const session = curveSession();
-    click(session, 2, 8);
-    drag(session, [8, 8], [12, 4]);
-    session.finishCurve();
+    drawSmooth(session);
     const { document } = session.createSaveRequest();
 
     const restored = makeSession({ frames: framesFromAnimationDocument(document, SIZE, SIZE) });

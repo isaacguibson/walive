@@ -37,6 +37,43 @@ export function appendAnchor(curve: BezierCurve, anchor: CurveAnchor): BezierCur
   return { ...curve, anchors: [...curve.anchors, anchor] };
 }
 
+function mirror(handle: Point): Point {
+  return { x: 0 - handle.x, y: 0 - handle.y };
+}
+
+function isMirrorOf(handle: Point, other: Point): boolean {
+  return handle.x === 0 - other.x && handle.y === 0 - other.y;
+}
+
+/**
+ * Gives the segment that ends at anchor `index` a handle at each end, a third of the way along it, where
+ * they have none. The segment keeps its straight shape, but the handles are there to be dragged. The ends of
+ * the path also get a handle on their outer side, opposite the inner one, so every anchor shows two handles.
+ */
+export function addSegmentHandles(curve: BezierCurve, index: number): BezierCurve {
+  const from = curve.anchors[index - 1];
+  const to = curve.anchors[index];
+  if (from === undefined || to === undefined) {
+    return curve;
+  }
+  const third = { x: (to.x - from.x) / 3, y: (to.y - from.y) / 3 };
+  // The outer handle of the previous end is only a mirror until the user moves it; then it shapes the new segment.
+  const replaceable = !hasHandle(from.handleOut) || (from.type === 'corner' && isMirrorOf(from.handleOut, from.handleIn));
+  const anchors = curve.anchors.map((anchor, position) => {
+    if (position === index - 1) {
+      const handleOut = replaceable ? third : anchor.handleOut;
+      return { ...anchor, handleOut, handleIn: hasHandle(anchor.handleIn) ? anchor.handleIn : mirror(handleOut) };
+    }
+    if (position === index) {
+      const handleIn = hasHandle(anchor.handleIn) ? anchor.handleIn : mirror(third);
+      const last = index === curve.anchors.length - 1;
+      return { ...anchor, handleIn, handleOut: last && !hasHandle(anchor.handleOut) ? mirror(handleIn) : anchor.handleOut };
+    }
+    return anchor;
+  });
+  return { ...curve, anchors };
+}
+
 export function moveCurve(curve: BezierCurve, dx: number, dy: number): BezierCurve {
   return { ...curve, anchors: curve.anchors.map((anchor) => ({ ...anchor, ...boundPoint({ x: anchor.x + dx, y: anchor.y + dy }) })) };
 }

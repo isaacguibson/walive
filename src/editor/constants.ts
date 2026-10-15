@@ -47,5 +47,7 @@ export const CURVE_HANDLE_HIT_SCREEN_PX = 8;
 export const CURVE_DRAG_SCREEN_PX = 3;
 /** Distance, in screen pixels, within which a press grabs a handle of the selection. */
 export const SELECTION_HANDLE_HIT_SCREEN_PX = 8;
+/** Distance, in screen pixels, between the top edge of the selection and its rotation handle. */
+export const SELECTION_ROTATE_HANDLE_SCREEN_PX = 26;
 /** Anchors placed closer than this (screen pixels) to the previous one are ignored, which makes a double-click safe. */
 export const CURVE_DOUBLE_CLICK_SCREEN_PX = 4;

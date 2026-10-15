@@ -1,6 +1,12 @@
 import { consumeDirty, layerDrawings } from '@editor/drawing/raster';
 import type { DrawingData, Frame, SelectionPreview } from '@editor/model';
 
+/** A curve or shape waiting to be confirmed, as pixels. */
+export interface PendingPreview {
+  layerId: string;
+  drawing: DrawingData;
+}
+
 interface LayerSurface {
   canvas: HTMLCanvasElement;
   context: CanvasRenderingContext2D;
@@ -31,8 +37,9 @@ export class CanvasRenderer {
   /**
    * `preview` is a transformation of the selection that is not in the layer yet: the layer is
    * drawn without the original pixels and with the transformed ones instead. The layer is not changed.
+   * `pending` is a curve or shape that is not in the layer yet: it is drawn over that layer's own content.
    */
-  render(frame: Frame, preview: SelectionPreview | null = null): void {
+  render(frame: Frame, preview: SelectionPreview | null = null, pending: PendingPreview | null = null): void {
     const context = this.target.getContext('2d');
     if (context === null) {
       return;
@@ -53,6 +60,12 @@ export class CanvasRenderer {
         const moved = preview !== null && preview.layerId === layer.id && position === 0 ? this.withPreview(surface, preview) : null;
         context.drawImage(moved ?? surface.canvas, 0, 0);
       });
+      if (pending !== null && pending.layerId === layer.id) {
+        const surface = this.syncSurface(pending.drawing);
+        if (surface !== null) {
+          context.drawImage(surface.canvas, 0, 0);
+        }
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 import type { BrushDefinition } from '../brushes/brush';
 import type { BezierCurve, CurveStyle } from '../curves/curve';
 import type { CurveEdit } from '../curves/curveEdit';
+import type { Shape, ShapeEditorState, ShapeOptions } from '../shapes/geometry';
 import type {
   BrushSettings,
   CurveEditorState,
@@ -67,6 +68,12 @@ export interface ToolContext {
   /** The active layer and its pixels; `null` (after reporting the reason) when the layer cannot be edited. */
   getActiveLayerPixels(): { readonly layerId: string; readonly drawing: DrawingData } | null;
   getSelectionOptions(): SelectionOptions;
+  /** A shape with the current Tool Options, centered on `center`. */
+  newShape(center: Point): Shape;
+  /** Changes the options of the Geometric Shapes tool (not the pending shape), for example to show the size a drag gave it. */
+  setShapeOptions(patch: Partial<ShapeOptions>): void;
+  /** Publishes the shape waiting to be confirmed, for the overlay and the options panel. */
+  setShapeEditor(state: ShapeEditorState): void;
   /** Publishes the rectangle of the Selection Tool for the overlay; `null` when there is none. */
   setSelection(state: SelectionState | null): void;
   reportError(message: string): void;

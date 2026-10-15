@@ -3,6 +3,7 @@ export type IconName =
   | 'bezier'
   | 'eraser'
   | 'fill'
+  | 'shapes'
   | 'select'
   | 'settings'
   | 'history'
@@ -52,6 +53,7 @@ const PATHS: Record<IconName, readonly string[]> = {
     'M2 13h15',
     'M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z'
   ],
+  shapes: ['M3 3h8v8H3Z', 'M13 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0', 'M3 21l4.5-8L12 21Z', 'M14 21l7-7'],
   select: [
     'M5 3a2 2 0 0 0-2 2',
     'M19 3a2 2 0 0 1 2 2',

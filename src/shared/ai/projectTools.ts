@@ -1,5 +1,5 @@
 import type { ProjectAsset } from '../types/assets';
-import type { AIToolDefinition, ApprovalDetails, ToolOutput } from './tools';
+import { ToolExecutionError, type AIToolDefinition, type ApprovalDetails, type ToolOutput } from './tools';
 import type { JsonSchema, ToolPermission } from './types';
 
 export interface ProjectInfo {
@@ -44,6 +44,40 @@ export interface DrawStroke {
   opacity: number;
 }
 
+export const SHAPE_KINDS = ['square', 'triangle', 'circle', 'line'] as const;
+
+/** A geometric shape, in canvas pixels. A line is `size` long and is centered on `center`. */
+export interface AgentShape {
+  kind: (typeof SHAPE_KINDS)[number];
+  center: [number, number];
+  size: number;
+  /** Degrees, clockwise, around the center. */
+  rotation: number;
+  color: string;
+  opacity: number;
+  fill: boolean;
+  strokeWidth: number;
+}
+
+export const CURVE_BRUSHES = ['basic', 'pencil', 'charcoal', 'chalk', 'particle'] as const;
+
+/** A cubic Bézier path. Handles are offsets from their anchor; an omitted handle is none. */
+export interface AgentCurve {
+  anchors: { point: [number, number]; handleIn: [number, number]; handleOut: [number, number] }[];
+  brush: string;
+  color: string;
+  size: number;
+  opacity: number;
+}
+
+/** A rectangle of a layer whose pixels are turned and/or moved as one piece. */
+export interface RegionTransform {
+  region: { x: number; y: number; width: number; height: number };
+  /** Degrees, clockwise, around the center of the region. */
+  rotation: number;
+  moveBy: [number, number];
+}
+
 /**
  * The operations of the open scene the agent may use. It is implemented by the editor, through its
  * normal drawing and history services, and throws `ToolExecutionError` for invalid targets.
@@ -57,6 +91,12 @@ export interface ProjectToolHost {
   listAssets(): Promise<ProjectAsset[]>;
   drawStrokes(strokes: DrawStroke[], layerId: string | null, erase: boolean): number;
   fillArea(x: number, y: number, color: string, layerId: string | null): void;
+  /** Paints the shape on the layer as ordinary pixels, as one undo step. */
+  drawShape(shape: AgentShape, layerId: string | null): void;
+  /** Paints the curve on the layer as ordinary pixels (it is not kept as an editable curve), as one undo step. */
+  drawCurve(curve: AgentCurve, layerId: string | null): void;
+  /** Turns and/or moves the pixels of a region of the layer through the Selection Tool. Returns `false` when the region holds no artwork. */
+  transformRegion(transform: RegionTransform, layerId: string | null): boolean;
   addFrame(): string;
   duplicateFrame(frameId: string | null): string;
   selectFrame(frameId: string): void;
@@ -256,6 +296,129 @@ export function createProjectTools(host: ProjectToolHost, guard: () => void): AI
       (input) => {
         host.fillArea(input['x'] as number, input['y'] as number, text(input['color']) ?? '#000000', text(input['layerId']));
         return { summary: 'Filled an area', data: { filled: true, undoSteps: 1 } };
+      }
+    ),
+
+    define(
+      'draw_shape',
+      'Draw shape',
+      'modify',
+      'Draws a square, equilateral triangle, circle or straight line on a layer of the active frame, as ordinary pixels. x and y are the center in canvas pixels. size is the side of a square or triangle, the diameter of a circle or the length of a line. Shapes are outlined unless fill is true; a line always uses strokeWidth.',
+      object(
+        {
+          layerId: LAYER_ID,
+          kind: { type: 'string', enum: [...SHAPE_KINDS] },
+          x: { type: 'number', description: 'Center x in canvas pixels.' },
+          y: { type: 'number', description: 'Center y in canvas pixels.' },
+          size: { type: 'number', minimum: 1, maximum: 25000 },
+          rotation: { type: 'number', minimum: -180, maximum: 180, description: 'Degrees, clockwise, around the center (default 0).' },
+          color: COLOR,
+          opacity: { type: 'integer', minimum: 1, maximum: 100 },
+          fill: { type: 'boolean', description: 'Fill the shape instead of outlining it (default false).' },
+          strokeWidth: { type: 'integer', minimum: 1, maximum: 100, description: 'Outline or line thickness in pixels (default 4).' }
+        },
+        ['kind', 'x', 'y', 'size', 'color']
+      ),
+      (input) => ({
+        operation: `Draw a ${text(input['kind']) === 'line' ? 'straight line' : String(input['kind'])}`,
+        target: `${layerLabel(text(input['layerId']))} of ${frameLabel(null)}`,
+        effect: 'Adds artwork. It can be undone with Undo.'
+      }),
+      (input) => {
+        const shape: AgentShape = {
+          kind: text(input['kind']) as AgentShape['kind'],
+          center: [input['x'] as number, input['y'] as number],
+          size: input['size'] as number,
+          rotation: typeof input['rotation'] === 'number' ? input['rotation'] : 0,
+          color: text(input['color']) ?? '#000000',
+          opacity: typeof input['opacity'] === 'number' ? input['opacity'] : 100,
+          fill: input['fill'] === true,
+          strokeWidth: typeof input['strokeWidth'] === 'number' ? input['strokeWidth'] : 4
+        };
+        host.drawShape(shape, text(input['layerId']));
+        return { summary: `Drew a ${shape.kind}`, data: { drawn: true, undoSteps: 1 } };
+      }
+    ),
+
+    define(
+      'draw_bezier_curve',
+      'Draw Bézier curve',
+      'modify',
+      'Draws a cubic Bézier curve through the anchors on a layer of the active frame, with the chosen brush, as ordinary pixels (it cannot be edited as a curve afterwards, only erased or transformed like any drawing). Each anchor is a point; handleIn and handleOut are optional [dx, dy] offsets from the anchor that bend the segments before and after it.',
+      object(
+        {
+          layerId: LAYER_ID,
+          anchors: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 100,
+            items: object({ point: POINT, handleIn: { ...POINT, description: '[dx, dy] offset of the incoming handle.' }, handleOut: { ...POINT, description: '[dx, dy] offset of the outgoing handle.' } }, ['point'])
+          },
+          brush: { type: 'string', enum: [...CURVE_BRUSHES], description: 'Brush type (default basic).' },
+          color: COLOR,
+          size: { type: 'number', minimum: 1, maximum: 500, description: 'Brush diameter in pixels.' },
+          opacity: { type: 'integer', minimum: 1, maximum: 100 }
+        },
+        ['anchors', 'color', 'size']
+      ),
+      (input) => ({
+        operation: `Draw a Bézier curve with ${(input['anchors'] as unknown[]).length} anchors`,
+        target: `${layerLabel(text(input['layerId']))} of ${frameLabel(null)}`,
+        effect: 'Adds artwork. It can be undone with Undo.'
+      }),
+      (input) => {
+        const offset = (value: unknown): [number, number] => (Array.isArray(value) ? [value[0] as number, value[1] as number] : [0, 0]);
+        const curve: AgentCurve = {
+          anchors: (input['anchors'] as Record<string, unknown>[]).map((anchor) => ({
+            point: offset(anchor['point']),
+            handleIn: offset(anchor['handleIn']),
+            handleOut: offset(anchor['handleOut'])
+          })),
+          brush: text(input['brush']) ?? 'basic',
+          color: text(input['color']) ?? '#000000',
+          size: input['size'] as number,
+          opacity: typeof input['opacity'] === 'number' ? input['opacity'] : 100
+        };
+        host.drawCurve(curve, text(input['layerId']));
+        return { summary: 'Drew a Bézier curve', data: { drawn: true, undoSteps: 1 } };
+      }
+    ),
+
+    define(
+      'transform_region',
+      'Transform region',
+      'modify',
+      'Selects a rectangle of a layer of the active frame with the Selection Tool and turns it around its center (rotation, degrees clockwise) and/or moves it by moveX, moveY pixels. Everything of that layer inside the rectangle is transformed, so choose the rectangle to hold only the artwork you mean. Transparency is kept and the rest of the layer is untouched.',
+      object(
+        {
+          layerId: LAYER_ID,
+          x: { type: 'integer', minimum: 0 },
+          y: { type: 'integer', minimum: 0 },
+          width: { type: 'integer', minimum: 1 },
+          height: { type: 'integer', minimum: 1 },
+          rotation: { type: 'number', minimum: -180, maximum: 180 },
+          moveX: { type: 'integer' },
+          moveY: { type: 'integer' }
+        },
+        ['x', 'y', 'width', 'height']
+      ),
+      (input) => ({
+        operation: 'Transform a region of artwork',
+        target: `${layerLabel(text(input['layerId']))} of ${frameLabel(null)}, region ${String(input['width'])}x${String(input['height'])} at (${String(input['x'])}, ${String(input['y'])})`,
+        effect: 'Turns and/or moves the pixels of the region. It can be undone with Undo.'
+      }),
+      (input) => {
+        const rotation = typeof input['rotation'] === 'number' ? input['rotation'] : 0;
+        const moveBy: [number, number] = [typeof input['moveX'] === 'number' ? input['moveX'] : 0, typeof input['moveY'] === 'number' ? input['moveY'] : 0];
+        if (rotation === 0 && moveBy[0] === 0 && moveBy[1] === 0) {
+          throw new ToolExecutionError('Give a rotation or a move; otherwise there is nothing to transform.');
+        }
+        const region = { x: input['x'] as number, y: input['y'] as number, width: input['width'] as number, height: input['height'] as number };
+        const changed = host.transformRegion({ region, rotation, moveBy }, text(input['layerId']));
+        if (!changed) {
+          throw new ToolExecutionError('The region holds no artwork on that layer, so nothing was transformed.');
+        }
+        return { summary: 'Transformed a region', data: { transformed: true, undoSteps: 1 } };
       }
     ),
 

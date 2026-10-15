@@ -194,3 +194,115 @@ describe('frame previews', () => {
     expect(describeRendering(rendered, SIZE, SIZE)).toContain('Main colors: #000000');
   });
 });
+
+describe('shapes, curves and regions', () => {
+  const shape = (overrides: Partial<Parameters<ReturnType<typeof setup>['host']['drawShape']>[0]> = {}) => ({
+    kind: 'square' as const,
+    center: [16, 16] as [number, number],
+    size: 10,
+    rotation: 0,
+    color: RED,
+    opacity: 100,
+    fill: true,
+    strokeWidth: 2,
+    ...overrides
+  });
+
+  it('draws a filled shape as ordinary pixels in one undo step, leaving the editor options alone', () => {
+    const { host, session, pixel } = setup();
+    session.setColor('#123456');
+    session.selectTool('bezier');
+    host.drawShape(shape(), null);
+    expect(pixel(16, 16)).toEqual([255, 0, 0, 255]);
+    expect(pixel(4, 4)).toEqual([0, 0, 0, 0]);
+    expect(session.getSnapshot().state).toMatchObject({ selectedTool: 'bezier', color: '#123456' });
+    session.undo();
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(true);
+    expect(session.getSnapshot().canUndo).toBe(false);
+  });
+
+  it('draws outlined shapes, rotated shapes and lines', () => {
+    const { host, pixel } = setup();
+    host.drawShape(shape({ fill: false, strokeWidth: 2 }), null);
+    expect(pixel(16, 11)[3]).toBeGreaterThan(0);
+    expect(pixel(16, 16)[3]).toBe(0);
+    host.drawShape(shape({ kind: 'line', center: [16, 26], size: 20, rotation: 0, strokeWidth: 2 }), null);
+    expect(pixel(8, 26)[3]).toBe(255);
+    expect(pixel(8, 20)[3]).toBe(0);
+  });
+
+  it('draws on the layer that was asked for and keeps the active one', () => {
+    const { host, session } = setup();
+    session.addLayer();
+    const upper = session.getSnapshot().activeLayer.id;
+    const lower = session.getSnapshot().activeFrame.layers[1]?.id ?? '';
+    host.drawShape(shape(), lower);
+    expect(session.getSnapshot().activeLayer.id).toBe(upper);
+    expect(isDrawingBlank(session.getSnapshot().activeFrame.layers[0]?.drawing ?? session.getSnapshot().activeLayer.drawing)).toBe(true);
+    expect(isDrawingBlank(session.getSnapshot().activeFrame.layers[1]?.drawing ?? session.getSnapshot().activeLayer.drawing)).toBe(false);
+    expect(() => host.drawShape(shape(), 'nope')).toThrow(ToolExecutionError);
+  });
+
+  it('draws a Bézier curve as pixels, not as an editable curve', () => {
+    const { host, session, pixel } = setup();
+    host.drawCurve({ anchors: [{ point: [4, 8], handleIn: [0, 0], handleOut: [0, 0] }, { point: [28, 8], handleIn: [0, 0], handleOut: [0, 0] }], brush: 'basic', color: RED, size: 4, opacity: 100 }, null);
+    expect(pixel(16, 8)).toEqual([255, 0, 0, 255]);
+    expect(pixel(16, 14)).toEqual([0, 0, 0, 0]);
+    expect(session.getSnapshot().activeLayer.curves).toHaveLength(0);
+    session.undo();
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(true);
+  });
+
+  it('bends a curve with its handles, uses the chosen brush and refuses a curve that cannot be drawn', () => {
+    const { host, pixel } = setup();
+    host.drawCurve({ anchors: [{ point: [4, 16], handleIn: [0, 0], handleOut: [0, -12] }, { point: [28, 16], handleIn: [0, -12], handleOut: [0, 0] }], brush: 'basic', color: RED, size: 2, opacity: 100 }, null);
+    expect(pixel(16, 8)[3]).toBeGreaterThan(0);
+    expect(pixel(16, 16)[3]).toBe(0);
+    expect(() => host.drawCurve({ anchors: [{ point: [4, 4], handleIn: [0, 0], handleOut: [0, 0] }, { point: [4, 4], handleIn: [0, 0], handleOut: [0, 0] }], brush: 'basic', color: RED, size: 2, opacity: 100 }, null)).toThrow(ToolExecutionError);
+  });
+
+  it('refuses to draw while the user has a shape waiting for confirmation', () => {
+    const { host, session } = setup();
+    session.selectTool('shape');
+    session.pointerDown({ x: 10, y: 10, pointerId: 1, buttons: 1 });
+    session.pointerUp({ x: 10, y: 10, pointerId: 1, buttons: 0 });
+    expect(() => host.drawShape(shape(), null)).toThrow('waiting for confirmation');
+    expect(isDrawingBlank(session.getSnapshot().activeLayer.drawing)).toBe(true);
+  });
+
+  const bar = (host: ReturnType<typeof setup>['host']) => host.drawStrokes([{ points: [[8, 16], [24, 16]], color: RED, size: 2, opacity: 100 }], null, false);
+
+  it('rotates a region of artwork around its center through the Selection Tool, as one undo step', () => {
+    const { host, session, pixel } = setup();
+    bar(host);
+    session.selectTool('brush');
+    expect(host.transformRegion({ region: { x: 6, y: 12, width: 20, height: 8 }, rotation: 90, moveBy: [0, 0] }, null)).toBe(true);
+    expect(session.getSnapshot().state.selectedTool).toBe('brush');
+    expect(session.getSnapshot().state.selection).toBeNull();
+    expect(pixel(16, 8)[3]).toBeGreaterThan(0);
+    expect(pixel(16, 23)[3]).toBeGreaterThan(0);
+    expect(pixel(8, 16)[3]).toBe(0);
+    session.undo();
+    expect(pixel(8, 16)[3]).toBeGreaterThan(0);
+    expect(pixel(16, 8)[3]).toBe(0);
+  });
+
+  it('rotates by the same angle at any zoom and can move the region too', () => {
+    const run = (zoom: number) => {
+      const { host, session } = setup();
+      session.setZoom(zoom);
+      bar(host);
+      host.transformRegion({ region: { x: 6, y: 12, width: 20, height: 8 }, rotation: 37, moveBy: [2, 3] }, null);
+      return Array.from(session.getSnapshot().activeLayer.drawing.data ?? []);
+    };
+    expect(run(400)).toEqual(run(100));
+    expect(run(25)).toEqual(run(100));
+  });
+
+  it('reports a region without artwork or outside the canvas', () => {
+    const { host, session } = setup();
+    expect(host.transformRegion({ region: { x: 0, y: 0, width: 4, height: 4 }, rotation: 45, moveBy: [0, 0] }, null)).toBe(false);
+    expect(session.getSnapshot().canUndo).toBe(false);
+    expect(() => host.transformRegion({ region: { x: 20, y: 20, width: 20, height: 20 }, rotation: 45, moveBy: [0, 0] }, null)).toThrow('outside');
+  });
+});

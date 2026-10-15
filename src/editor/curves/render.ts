@@ -6,22 +6,10 @@ import { parseHexColor } from '../validation';
 import type { BezierCurve } from './curve';
 import { flattenAnchors } from './geometry';
 
-/**
- * Draws one curve onto `scratch` (which must be blank) with its brush, following the
- * flattened path. Returns the rectangle that was painted, or `null`.
- */
-function paintCurve(curve: BezierCurve, scratch: DrawingData): Rect | null {
+/** Paints `curve` on `canvas` with its own brush, exactly as a brush stroke along the flattened path. */
+export function paintCurveStroke(curve: BezierCurve, canvas: BrushCanvas): void {
   const { style } = curve;
   const brush = findBrush(style.brush);
-  const painted: { rect: Rect | null } = { rect: null };
-  const canvas: BrushCanvas = {
-    apply: (operation) => {
-      const rect = operation(scratch, null);
-      if (rect !== null) {
-        painted.rect = painted.rect === null ? rect : unionRect(painted.rect, rect);
-      }
-    }
-  };
   const opacity = style.opacity / 100;
   const stroke = brush.startStroke(sanitizeBrushSettings(brush, style.settings), {
     canvas,
@@ -34,6 +22,19 @@ function paintCurve(curve: BezierCurve, scratch: DrawingData): Rect | null {
   stroke.begin(sample(points[0] as Point));
   points.slice(1).forEach((point) => stroke.extend(sample(point)));
   stroke.end();
+}
+
+/** Draws one curve onto `scratch` (which must be blank). Returns the rectangle that was painted, or `null`. */
+function paintCurve(curve: BezierCurve, scratch: DrawingData): Rect | null {
+  const painted: { rect: Rect | null } = { rect: null };
+  paintCurveStroke(curve, {
+    apply: (operation) => {
+      const rect = operation(scratch, null);
+      if (rect !== null) {
+        painted.rect = painted.rect === null ? rect : unionRect(painted.rect, rect);
+      }
+    }
+  });
   return painted.rect;
 }
 

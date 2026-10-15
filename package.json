@@ -15,7 +15,8 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package:win": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "@github/copilot-sdk": "1.0.21",
@@ -34,10 +35,30 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.7",
     "vitest": "^5.0.3"
+  },
+  "build": {
+    "appId": "com.guibsonsoftwares.walive",
+    "productName": "Walive",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Walive",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

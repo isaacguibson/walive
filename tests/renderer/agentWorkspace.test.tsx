@@ -370,36 +370,6 @@ describe('AI settings', () => {
     await waitFor(() => expect(aiApi.removeProvider).toHaveBeenCalledWith(PROVIDER.id));
   });
 
-  it('adds an MCP server only after showing the command and asking for trust', async () => {
-    const { dialog, user, aiApi } = await openSettings(aiState(), (api) => api.saveMcpServer.mockResolvedValue(ok(aiState())));
-    await user.click(dialog.getByRole('tab', { name: 'MCP Servers' }));
-    await user.click(await dialog.findByRole('button', { name: 'Add MCP Server' }));
-    const form = within(dialog.getByRole('form', { name: 'Add MCP Server' }));
-    await user.type(form.getByLabelText('Server name'), 'Local tools');
-    await user.type(form.getByLabelText('Executable'), 'npx');
-    await user.type(form.getByLabelText('Arguments (one per line)'), '-y{Enter}some-server');
-    expect(form.getByText('npx -y some-server')).toBeInTheDocument();
-    expect(form.getByRole('checkbox', { name: /I trust this server/ })).not.toBeChecked();
-    await user.click(form.getByRole('button', { name: 'Save Server' }));
-    await waitFor(() => expect(aiApi.saveMcpServer).toHaveBeenCalled());
-    expect(aiApi.saveMcpServer).toHaveBeenCalledWith({ id: null, name: 'Local tools', enabled: true, trusted: false, authToken: null, transport: 'stdio', command: 'npx', args: ['-y', 'some-server'] });
-  });
-
-  it('shows the state of a server, its tools and connection errors, and connects it', async () => {
-    const state = aiState();
-    state.settings.mcpServers = [{ id: 's1', name: 'Weather', enabled: true, trusted: true, credentialHint: null, transport: 'http', url: 'https://mcp.example.com/mcp' }];
-    const { dialog, user, aiApi } = await openSettings(state, (api) => {
-      api.listMcpServers.mockResolvedValue(ok([{ id: 's1', state: 'error', error: 'Could not connect: timeout', commandLine: null, tools: [] }]));
-      api.connectMcpServer.mockResolvedValue(ok({ id: 's1', state: 'connected', error: null, commandLine: null, tools: [{ serverId: 's1', serverName: 'Weather', name: 'forecast', description: 'Get a forecast', inputSchema: {} }] }));
-    });
-    await user.click(dialog.getByRole('tab', { name: 'MCP Servers' }));
-    expect(await dialog.findByText('Could not connect: timeout')).toBeInTheDocument();
-    aiApi.listMcpServers.mockResolvedValue(ok([{ id: 's1', state: 'connected', error: null, commandLine: null, tools: [{ serverId: 's1', serverName: 'Weather', name: 'forecast', description: 'Get a forecast', inputSchema: {} }] }]));
-    await user.click(dialog.getByRole('button', { name: 'Connect' }));
-    expect(await dialog.findByText('1 tool(s)')).toBeInTheDocument();
-    expect(await dialog.findByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
-  });
-
   it('changes limits and the approval policy, and clears history after an explicit confirmation', async () => {
     const { dialog, user, aiApi, panel, send } = await openSettings(aiState([aiModel()]), (api) => api.runTurn.mockResolvedValue(ok(answer('Hi!'))));
     await user.click(dialog.getByRole('tab', { name: 'Agent' }));

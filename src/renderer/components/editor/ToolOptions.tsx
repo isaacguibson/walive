@@ -5,6 +5,15 @@ import { canRemoveAnchor } from '@editor/curves/editing';
 import type { AnchorType, BezierCurve } from '@editor/curves/curve';
 import type { BrushConfigState, EditorState, SelectionResampling } from '@editor/model';
 import { TOOL_DEFINITIONS } from '@editor/tools';
+import {
+  MAX_SHAPE_SIZE,
+  MAX_SHAPE_STROKE,
+  MIN_SHAPE_SIZE,
+  MIN_SHAPE_STROKE,
+  SHAPE_KINDS,
+  type ShapeKind,
+  type ShapeOptions
+} from '@editor/shapes/geometry';
 import { parseToolSize } from '@editor/validation';
 import { IconButton } from './IconButton';
 
@@ -20,11 +29,24 @@ export interface CurveOptionsHandlers {
   onDeleteCurve(): void;
 }
 
+/** Options of the Geometric Shapes tool and the actions on the pending shape. */
+export interface ShapeOptionsHandlers {
+  onKindChange(kind: ShapeKind): void;
+  onSizeChange(size: number): void;
+  onRotationChange(degrees: number): void;
+  onStrokeWidthChange(width: number): void;
+  onFillChange(fill: boolean): void;
+  onOpacityChange(percent: number): void;
+  onConfirm(): void;
+  onCancel(): void;
+}
+
 interface ToolOptionsProps {
   state: EditorState;
   /** The curve selected with the Bézier tool, if it is on the active layer. */
   selectedCurve: BezierCurve | null;
   curve: CurveOptionsHandlers;
+  shape: ShapeOptionsHandlers;
   onColorChange(color: string): void;
   onBrushTypeChange(id: string): void;
   onBrushSettingChange(key: string, value: number): void;
@@ -215,11 +237,109 @@ function BrushFields({
   );
 }
 
+/** Angle in degrees: a slider for quick changes and a text field for an exact value. */
+function RotationField({ value, onChange }: { value: number; onChange(degrees: number): void }) {
+  // A dragged line can have any angle; it is shown to a tenth of a degree.
+  const shown = String(Math.round(value * 10) / 10);
+  const [draft, setDraft] = useState(shown);
+
+  useEffect(() => {
+    setDraft(shown);
+  }, [shown]);
+
+  return (
+    <div className="field">
+      <label htmlFor="shape-rotation">Rotation</label>
+      <div className="field-row field-inline">
+        <input id="shape-rotation" type="range" min={-180} max={180} step={1} value={Math.round(value)} onChange={(event) => onChange(Number(event.target.value))} />
+        <input
+          type="text"
+          inputMode="numeric"
+          aria-label="Rotation in degrees"
+          className="degrees-input"
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            if (event.target.value.trim() !== '' && Number.isFinite(Number(event.target.value))) {
+              onChange(Number(event.target.value));
+            }
+          }}
+          onBlur={() => setDraft(shown)}
+        />
+        <span className="unit">°</span>
+      </div>
+    </div>
+  );
+}
+
+interface ShapeFieldsProps {
+  shape: ShapeOptions;
+  pending: boolean;
+  handlers: ShapeOptionsHandlers;
+  colorField: ReactNode;
+}
+
+/** Shape, size, rotation and look of the Geometric Shapes tool; a pending shape follows every change. */
+function ShapeFields({ shape, pending, handlers, colorField }: ShapeFieldsProps) {
+  const isLine = shape.kind === 'line';
+  return (
+    <>
+      <p className="muted">
+        Press on the canvas and drag to size the shape (a click places it with the size below). Drag it to move it. Enter or a click outside it paints it as ordinary artwork; Esc discards it.
+      </p>
+      <div className="field">
+        <label htmlFor="shape-kind">Shape</label>
+        <select id="shape-kind" value={shape.kind} onChange={(event) => handlers.onKindChange(event.target.value as ShapeKind)}>
+          {SHAPE_KINDS.map((kind) => (
+            <option key={kind.id} value={kind.id}>
+              {kind.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <RangeField id="shape-size" label={isLine ? 'Length' : 'Size'} value={Math.round(shape.size)} min={MIN_SHAPE_SIZE} max={MAX_SHAPE_SIZE} unit="px" onChange={handlers.onSizeChange} />
+      <RotationField value={shape.rotation} onChange={handlers.onRotationChange} />
+      {!isLine && (
+        <div className="checkbox-field">
+          <label className="checkbox-row" htmlFor="shape-fill">
+            <input id="shape-fill" type="checkbox" checked={shape.fill} onChange={(event) => handlers.onFillChange(event.target.checked)} />
+            <span>Fill</span>
+          </label>
+        </div>
+      )}
+      {(isLine || !shape.fill) && (
+        <RangeField
+          id="shape-stroke"
+          label={isLine ? 'Line Width' : 'Outline Width'}
+          value={shape.strokeWidth}
+          min={MIN_SHAPE_STROKE}
+          max={MAX_SHAPE_STROKE}
+          unit="px"
+          onChange={handlers.onStrokeWidthChange}
+        />
+      )}
+      {colorField}
+      <RangeField id="shape-opacity" label="Opacity" value={shape.opacity} min={0} max={100} unit="%" onChange={handlers.onOpacityChange} />
+      {pending && (
+        <div className="curve-actions" role="group" aria-label="Pending Shape">
+          <button type="button" className="button button-small" onClick={handlers.onConfirm}>
+            Confirm Shape
+          </button>
+          <button type="button" className="button button-small" onClick={handlers.onCancel}>
+            Cancel Shape
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Upper right section: properties of the selected tool. */
 export function ToolOptions({
   state,
   selectedCurve,
   curve,
+  shape,
   onColorChange,
   onBrushTypeChange,
   onBrushSettingChange,
@@ -293,9 +413,13 @@ export function ToolOptions({
       )}
       {state.selectedTool === 'bezier' && (
         <>
+          <p className="muted">
+            Click to add anchors, then drag an anchor or its handles to shape the curve. Enter or a double-click paints it as ordinary artwork; Esc discards it.
+          </p>
           <BrushFields
             prefix="curve"
             config={state.curveBrush}
+            sizeControl="slider"
             middle={colorField}
             onTypeChange={curve.onBrushTypeChange}
             onSizeChange={curve.onSizeChange}
@@ -376,11 +500,13 @@ export function ToolOptions({
 
       {state.selectedTool === 'fill' && colorField}
 
+      {state.selectedTool === 'shape' && <ShapeFields shape={state.shape} pending={state.shapeEditor.pending !== null} handlers={shape} colorField={colorField} />}
+
       {state.selectedTool === 'select' && (
         <>
           <p className="muted">
-            Drag to select an area of the active layer. Drag inside it to move, drag a handle to resize. Click outside to apply, Esc to
-            cancel.
+            Drag to select an area of the active layer. Drag inside it to move, drag a handle to resize, drag the round handle above it to
+            rotate. Click outside to apply, Esc to cancel.
           </p>
           <div className="checkbox-field">
             <label className="checkbox-row" htmlFor="selection-keep-aspect-ratio">

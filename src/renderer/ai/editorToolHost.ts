@@ -1,5 +1,8 @@
 import type { EditorSession } from '@editor/editorSession';
 import type { Frame, Layer, ToolType } from '@editor/model';
+import { rotatePoint } from '@editor/angles';
+import { findBrush } from '@editor/brushes/registry';
+import { SELECTION_ROTATE_HANDLE_SCREEN_PX } from '@editor/constants';
 import { isDrawingBlank } from '@editor/drawing/raster';
 import { ToolExecutionError } from '@shared/ai/tools';
 import type { DrawStroke, FrameSummary, LayerSummary, ProjectToolHost } from '@shared/ai/projectTools';
@@ -42,6 +45,9 @@ export function createEditorToolHost({ session, projectName, scene, scenesApi, a
 
   /** Runs an editor operation and turns an error the editor reported into a tool failure. */
   function perform<T>(operation: () => T): T {
+    if (snapshot().state.shapeEditor.pending !== null) {
+      throw new ToolExecutionError('A shape is waiting for confirmation in the editor. Ask the user to confirm or cancel it first.');
+    }
     session.stop();
     session.clearError();
     const result = operation();
@@ -175,6 +181,59 @@ export function createEditorToolHost({ session, projectName, scene, scenesApi, a
       withTool('fill', layerId, () => {
         session.setColor(color);
         replay([[x + 0.5, y + 0.5]]);
+      });
+    },
+
+    drawShape(shape, layerId) {
+      withTool(snapshot().state.selectedTool, layerId, () => {
+        const [x, y] = shape.center;
+        const drawn = session.drawShape({ ...shape, center: { x, y } });
+        if (!drawn) {
+          throw new ToolExecutionError('The shape could not be drawn.');
+        }
+      });
+    },
+
+    drawCurve(curve, layerId) {
+      const brush = findBrush(curve.brush);
+      withTool(snapshot().state.selectedTool, layerId, () => {
+        const anchors = curve.anchors.map(({ point, handleIn, handleOut }) => ({
+          x: point[0],
+          y: point[1],
+          type: 'corner' as const,
+          handleIn: { x: handleIn[0], y: handleIn[1] },
+          handleOut: { x: handleOut[0], y: handleOut[1] }
+        }));
+        const style = { brush: brush.id, settings: brush.defaultSettings, color: curve.color, size: curve.size, opacity: curve.opacity };
+        if (!session.drawCurve(anchors, style)) {
+          throw new ToolExecutionError(snapshot().error ?? 'The curve could not be drawn.');
+        }
+      });
+    },
+
+    transformRegion({ region, rotation, moveBy }, layerId) {
+      if (region.x + region.width > snapshot().width || region.y + region.height > snapshot().height) {
+        throw new ToolExecutionError(`The region is outside the ${snapshot().width}x${snapshot().height} canvas.`);
+      }
+      return withTool('select', layerId, () => {
+        replay([[region.x, region.y], [region.x + region.width, region.y + region.height]]);
+        const selected = snapshot().state.selection;
+        if (selected === null || selected.creating) {
+          throw new ToolExecutionError('The region could not be selected.');
+        }
+        const center = { x: selected.rect.x + selected.rect.width / 2, y: selected.rect.y + selected.rect.height / 2 };
+        if (rotation !== 0) {
+          // The rotation handle sits a fixed number of screen pixels above the selection, whatever the zoom.
+          const handle = { x: center.x, y: selected.rect.y - SELECTION_ROTATE_HANDLE_SCREEN_PX / (snapshot().state.zoom / 100) };
+          const target = rotatePoint(handle, rotation, center);
+          replay([[handle.x, handle.y], [target.x, target.y]]);
+        }
+        if (moveBy[0] !== 0 || moveBy[1] !== 0) {
+          replay([[center.x, center.y], [center.x + moveBy[0], center.y + moveBy[1]]]);
+        }
+        const changed = snapshot().state.selection?.pending === true;
+        session.commitSelection();
+        return changed;
       });
     },
 

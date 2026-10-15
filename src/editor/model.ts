@@ -9,8 +9,9 @@
 
 import type { BezierCurve } from './curves/curve';
 import type { CurveCache } from './curves/render';
+import type { ShapeEditorState, ShapeOptions } from './shapes/geometry';
 
-export type ToolType = 'brush' | 'bezier' | 'eraser' | 'fill' | 'select';
+export type ToolType = 'brush' | 'bezier' | 'eraser' | 'fill' | 'shape' | 'select';
 
 export type BrushId = 'basic' | 'pencil' | 'charcoal' | 'chalk' | 'particle';
 
@@ -65,6 +66,8 @@ export interface SelectionState {
   readonly rect: Rect;
   /** The rectangle is still being dragged out. */
   readonly creating: boolean;
+  /** Degrees clockwise around the center of `rect`; the pixels are turned by this much. */
+  readonly angle: number;
   /** The pixels were moved or resized and the change is not applied to the layer yet. */
   readonly pending: boolean;
 }
@@ -137,6 +140,9 @@ export interface EditorState {
   /** Options of the Bézier tool, which keeps its own brush options apart from the Brush tool. */
   curveBrush: BrushConfigState;
   curveEditor: CurveEditorState;
+  /** Options of the Geometric Shapes tool and the shape waiting to be confirmed, if any. */
+  shape: ShapeOptions;
+  shapeEditor: ShapeEditorState;
   /** Rectangle of the Selection Tool; `null` without one. */
   selection: SelectionState | null;
   selectionOptions: SelectionOptions;

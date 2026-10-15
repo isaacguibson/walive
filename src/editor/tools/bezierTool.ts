@@ -9,6 +9,7 @@ import { CURVE_LIMITS } from '@shared/types/curves';
 import { hasHandle, type AnchorType, type BezierCurve } from '../curves/curve';
 import type { CurveEdit } from '../curves/curveEdit';
 import {
+  addSegmentHandles,
   appendAnchor,
   canRemoveAnchor,
   cornerAnchor,
@@ -23,6 +24,7 @@ import {
   smoothAnchor
 } from '../curves/editing';
 import { distance, nearestOnPath } from '../curves/geometry';
+import { paintCurveStroke } from '../curves/render';
 import type { Point, ToolType } from '../model';
 import { toPoint, type EditorTool, type ToolContext, type ToolPointerEvent } from './tool';
 
@@ -36,7 +38,9 @@ type Gesture =
   /** Dragging out the handles of the anchor that was just placed on the draft. */
   | { readonly kind: 'newHandle'; readonly index: number; readonly origin: Point; dragged: boolean }
   /** Moving a curve, an anchor or a handle of a curve that is on the layer. */
-  | { readonly kind: 'edit'; readonly grab: Grab; readonly edit: CurveEdit; readonly base: BezierCurve; readonly origin: Point; dragged: boolean };
+  | { readonly kind: 'edit'; readonly grab: Grab; readonly edit: CurveEdit; readonly base: BezierCurve; readonly origin: Point; dragged: boolean }
+  /** Moving an anchor or a handle of the pending path; nothing is recorded until it is confirmed. */
+  | { readonly kind: 'draft'; readonly grab: Control; readonly base: BezierCurve; readonly origin: Point; dragged: boolean };
 
 function replaceCurve(curves: readonly BezierCurve[], curve: BezierCurve): BezierCurve[] {
   return curves.map((existing) => (existing.id === curve.id ? curve : existing));
@@ -72,7 +76,15 @@ export class BezierTool implements EditorTool {
   pointerDown(event: ToolPointerEvent): void {
     const point = toPoint(event);
     if (this.draft !== null) {
-      this.extendDraft(point);
+      // A press on an anchor or handle of the pending path edits it; only a press elsewhere adds an anchor.
+      const grab = this.pickControl(this.draft, point);
+      if (grab === null) {
+        this.extendDraft(point);
+      } else {
+        this.selectedAnchor = grab.index;
+        this.gesture = { kind: 'draft', grab, base: this.draft, origin: point, dragged: false };
+        this.publish();
+      }
       return;
     }
     const selected = this.selectedCurve();
@@ -109,6 +121,11 @@ export class BezierTool implements EditorTool {
       return;
     }
     const moved = this.applyGrab(gesture.base, gesture.grab, point.x - gesture.origin.x, point.y - gesture.origin.y);
+    if (gesture.kind === 'draft') {
+      this.draft = moved;
+      this.publish();
+      return;
+    }
     gesture.edit.update(replaceCurve(this.context.getCurves(), moved));
   }
 
@@ -147,7 +164,7 @@ export class BezierTool implements EditorTool {
 
   // ---- Actions (keyboard shortcuts and the options panel) ------------------
 
-  /** Completes the path being drawn. A path that cannot be drawn is discarded. */
+  /** Completes the path being drawn as a normal brush stroke on the active layer. A path that cannot be drawn is discarded. */
   finish(): void {
     const draft = this.draft;
     if (draft === null) {
@@ -155,16 +172,26 @@ export class BezierTool implements EditorTool {
     }
     this.draft = null;
     this.selectedAnchor = null;
-    const curves = this.context.getCurves();
-    if (isDrawableCurve(draft) && this.context.canEditCurves() && this.guardCurveCount(curves)) {
-      const edit = this.context.beginCurveEdit('Create curve');
-      if (edit !== null) {
-        edit.update([...curves, draft]);
-        edit.commit();
-        this.selectedId = draft.id;
+    if (isDrawableCurve(draft) && this.context.canEditCurves()) {
+      const stroke = this.context.beginStroke('Bézier curve');
+      if (stroke !== null) {
+        paintCurveStroke(draft, stroke);
+        stroke.commit();
       }
     }
     this.publish();
+  }
+
+  /** Gives the pending path the current options of the tool (its random seed is kept). */
+  restyleDraft(): void {
+    if (this.draft === null) {
+      return;
+    }
+    const style = { ...this.context.newCurveStyle(), seed: this.draft.style.seed };
+    if (JSON.stringify(style) !== JSON.stringify(this.draft.style)) {
+      this.draft = { ...this.draft, style };
+      this.publish();
+    }
   }
 
   /** Discards the path being drawn; without one, clears the selection. */
@@ -180,8 +207,9 @@ export class BezierTool implements EditorTool {
     if (this.draft !== null) {
       const { anchors } = this.draft;
       if (anchors.length > 1) {
-        this.draft = { ...this.draft, anchors: anchors.slice(0, -1) };
-        this.selectedAnchor = anchors.length - 2;
+        const index = Math.min(this.selectedAnchor ?? anchors.length - 1, anchors.length - 1);
+        this.draft = { ...this.draft, anchors: anchors.filter((_, position) => position !== index) };
+        this.selectedAnchor = Math.min(index, anchors.length - 2);
         this.publish();
       } else {
         this.cancel();
@@ -256,7 +284,7 @@ export class BezierTool implements EditorTool {
   }
 
   private startDraft(point: Point): void {
-    if (!this.context.canEditCurves() || !this.guardCurveCount(this.context.getCurves())) {
+    if (!this.context.canEditCurves()) {
       return;
     }
     this.draft = { id: this.context.createId(), anchors: [createAnchor(point)], style: this.context.newCurveStyle() };
@@ -277,7 +305,7 @@ export class BezierTool implements EditorTool {
       this.context.reportError(`A curve can have at most ${CURVE_LIMITS.maxAnchorsPerCurve} anchors.`);
       return;
     }
-    this.draft = appendAnchor(draft, createAnchor(point));
+    this.draft = addSegmentHandles(appendAnchor(draft, createAnchor(point)), draft.anchors.length);
     this.selectedAnchor = draft.anchors.length;
     this.gesture = { kind: 'newHandle', index: draft.anchors.length, origin: point, dragged: false };
     this.publish();
@@ -372,14 +400,6 @@ export class BezierTool implements EditorTool {
       }
     }
     return best;
-  }
-
-  private guardCurveCount(curves: readonly BezierCurve[]): boolean {
-    if (curves.length < CURVE_LIMITS.maxCurvesPerLayer) {
-      return true;
-    }
-    this.context.reportError(`A layer can have at most ${CURVE_LIMITS.maxCurvesPerLayer} curves.`);
-    return false;
   }
 
   private guardAnchorCount(curve: BezierCurve): boolean {

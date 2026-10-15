@@ -1,3 +1,4 @@
+import { rotatePoint } from '../angles';
 import type { Point, Rect } from '../model';
 import { RESIZE_HANDLES, type PlacementHandle } from '../placement';
 
@@ -11,7 +12,7 @@ import { RESIZE_HANDLES, type PlacementHandle } from '../placement';
  * stops one pixel short of it, so the selection never flips or collapses.
  */
 
-export type SelectionHit = { kind: 'handle'; handle: PlacementHandle } | { kind: 'inside' } | { kind: 'outside' };
+export type SelectionHit = { kind: 'handle'; handle: PlacementHandle } | { kind: 'rotate' } | { kind: 'inside' } | { kind: 'outside' };
 
 const HANDLE_ANCHORS: Record<PlacementHandle, readonly [number, number]> = {
   nw: [0, 0],
@@ -40,16 +41,26 @@ export function rectFromPoints(a: Point, b: Point, canvasWidth: number, canvasHe
   return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : null;
 }
 
+function centerOf(rect: Rect): Point {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
 /**
- * What a press at `point` grabs: the nearest handle within `tolerance`, else the inside, else nothing.
+ * What a press at `point` grabs: the rotation handle, the nearest resize handle within `tolerance`, else the inside, else nothing.
+ * The rectangle is turned by `angle` degrees around its center, and the rotation handle sits `rotateOffset` above its top edge.
  * On a small rectangle the reach of the handles shrinks, so that its middle can always be dragged.
  */
-export function hitTest(rect: Rect, point: Point, tolerance: number): SelectionHit {
+export function hitTest(rect: Rect, point: Point, tolerance: number, angle = 0, rotateOffset = 0): SelectionHit {
+  // Everything below is done in the frame of the unturned rectangle.
+  const local = angle === 0 ? point : rotatePoint(point, -angle, centerOf(rect));
+  if (rotateOffset > 0 && Math.hypot(local.x - (rect.x + rect.width / 2), local.y - (rect.y - rotateOffset)) <= tolerance) {
+    return { kind: 'rotate' };
+  }
   const reach = Math.min(tolerance, Math.min(rect.width, rect.height) / 3);
   let nearest: { handle: PlacementHandle; distance: number } | null = null;
   for (const handle of RESIZE_HANDLES) {
     const [ax, ay] = HANDLE_ANCHORS[handle];
-    const distance = Math.max(Math.abs(point.x - (rect.x + rect.width * ax)), Math.abs(point.y - (rect.y + rect.height * ay)));
+    const distance = Math.max(Math.abs(local.x - (rect.x + rect.width * ax)), Math.abs(local.y - (rect.y + rect.height * ay)));
     if (distance <= reach && (nearest === null || distance < nearest.distance)) {
       nearest = { handle, distance };
     }
@@ -58,8 +69,38 @@ export function hitTest(rect: Rect, point: Point, tolerance: number): SelectionH
     return { kind: 'handle', handle: nearest.handle };
   }
   const inside =
-    point.x >= rect.x && point.x < rect.x + rect.width && point.y >= rect.y && point.y < rect.y + rect.height;
+    local.x >= rect.x && local.x < rect.x + rect.width && local.y >= rect.y && local.y < rect.y + rect.height;
   return inside ? { kind: 'inside' } : { kind: 'outside' };
+}
+
+/** The point of `rect` on the side opposite to `handle`: the one that stays put while that handle is dragged. */
+function oppositeAnchor(rect: Rect, handle: PlacementHandle): Point {
+  const [ax, ay] = HANDLE_ANCHORS[handle];
+  return { x: rect.x + rect.width * (1 - ax), y: rect.y + rect.height * (1 - ay) };
+}
+
+/**
+ * Resizes a rectangle that is turned by `angle` degrees. The pointer offset is taken in the frame of the
+ * unturned rectangle, and the rectangle is then shifted so that the opposite side does not move on the canvas.
+ */
+export function resizeRotatedRect(
+  start: Rect,
+  angle: number,
+  handle: PlacementHandle,
+  dx: number,
+  dy: number,
+  keepAspectRatio: boolean,
+  canvasWidth: number,
+  canvasHeight: number
+): Rect {
+  if (angle === 0) {
+    return resizeRect(start, handle, dx, dy, keepAspectRatio, canvasWidth, canvasHeight);
+  }
+  const offset = rotatePoint({ x: dx, y: dy }, -angle, { x: 0, y: 0 });
+  const next = resizeRect(start, handle, offset.x, offset.y, keepAspectRatio, canvasWidth, canvasHeight);
+  const before = rotatePoint(oppositeAnchor(start, handle), angle, centerOf(start));
+  const after = rotatePoint(oppositeAnchor(next, handle), angle, centerOf(next));
+  return { ...next, x: next.x + Math.round(before.x - after.x), y: next.y + Math.round(before.y - after.y) };
 }
 
 /** Moves the rectangle by whole pixels. It may leave the canvas, but at least one pixel stays inside. */
