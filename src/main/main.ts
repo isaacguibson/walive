@@ -29,6 +29,7 @@ import { ElectronExportDestinationPicker } from './services/exportDestinationPic
 import { ElectronOutputRevealer, resolveFfmpegPath } from './services/exportSystem';
 import { SafeStorageCipher } from './services/safeStorageCipher';
 import { createWindowOptions } from './windowOptions';
+import appIcon from '../assets/icons/android-chrome-512x512.png?asset';
 
 const RECENT_PROJECTS_FILE = 'recent-projects.json';
 
@@ -41,7 +42,7 @@ function isAllowedAppUrl(url: string): boolean {
 }
 
 function createMainWindow(): BrowserWindow {
-  const window = new BrowserWindow(createWindowOptions(path.join(__dirname, '../preload/preload.js')));
+  const window = new BrowserWindow(createWindowOptions(path.join(__dirname, '../preload/preload.js'), appIcon));
 
   window.once('ready-to-show', () => window.show());
 

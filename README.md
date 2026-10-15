@@ -94,6 +94,22 @@ Session references are stored under application data, not in project files. Comp
 are resumed; incompatible or unavailable ones are rebuilt from normalized conversation history.
 Errors after tools have run are not automatically retried, avoiding accidental duplicate edits.
 
+### Windows Packaging
+
+Run `npm run package:win` to generate the Windows x64 NSIS installer in `release/`.
+Set `ARCH=arm64` to package Windows ARM64 instead.
+
+The application window and Windows packaging use
+`src/assets/icons/android-chrome-512x512.png`. Electron Builder converts this
+high-resolution source into the Windows icon embedded in the application,
+installer and uninstaller; desktop and Start menu shortcuts use the application icon.
+The packaging script copies the source icons into its temporary build directory.
+The small `favicon.ico` is intended for browsers, not Windows application packaging.
+
+Rebuild and reinstall to apply icon changes. Windows may cache older shortcut/taskbar
+icons; unpin and pin the application again if necessary. The installer is unsigned,
+so these changes do not remove Windows SmartScreen warnings or add a verified publisher.
+
 ### macOS Packaging
 
 Run `npm run package:mac` on macOS. It packages the current architecture by default;

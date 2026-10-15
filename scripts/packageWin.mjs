@@ -27,6 +27,7 @@ try {
     cpSync(join(root, file), join(stage, file));
   }
   cpSync(join(root, 'out'), join(stage, 'out'), { recursive: true });
+  cpSync(join(root, 'src', 'assets', 'icons'), join(stage, 'src', 'assets', 'icons'), { recursive: true });
 
   // Scripts are skipped: they would build for this machine. The native packages for Windows are optional dependencies,
   // and the only download that matters (ffmpeg) is done below for the Windows target.

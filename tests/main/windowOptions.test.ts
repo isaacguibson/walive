@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { createWindowOptions } from '../../src/main/windowOptions';
 
 describe('createWindowOptions', () => {
-  const { webPreferences } = createWindowOptions('/app/preload.js');
+  const options = createWindowOptions('/app/preload.js', '/app/icon.png');
+  const { webPreferences } = options;
+
+  it('uses the application icon for the window and taskbar', () => {
+    expect(options.icon).toBe('/app/icon.png');
+  });
 
   it('enables context isolation', () => {
     expect(webPreferences?.contextIsolation).toBe(true);
