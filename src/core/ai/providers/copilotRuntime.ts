@@ -5,6 +5,12 @@ import { AppError } from '../../errors';
 import type { CopilotStatus } from '@shared/ai/copilot';
 import type { EffortLevel, ModelInfo } from '@shared/ai/types';
 
+/** The only variables of this process the runtime receives; the Windows ones are what it needs to find the user's profile and credentials. */
+const RUNTIME_ENV_KEYS = [
+  'HOME', 'PATH', 'TMPDIR', 'SYSTEMROOT', 'LANG',
+  'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOMEDRIVE', 'HOMEPATH', 'PROGRAMDATA', 'WINDIR', 'COMSPEC', 'PATHEXT'
+] as const;
+
 export type CopilotClientFactory = (options: CopilotClientOptions) => CopilotClient;
 
 export function copilotError(error: unknown): AppError {
@@ -65,7 +71,7 @@ export class GitHubCopilotRuntimeService {
       pending = (async () => {
         await fs.mkdir(this.directory, { recursive: true });
         const env: Record<string, string | undefined> = {};
-        for (const key of ['HOME', 'PATH', 'TMPDIR', 'SYSTEMROOT', 'LANG']) env[key] = process.env[key];
+        for (const key of RUNTIME_ENV_KEYS) env[key] = process.env[key];
         const client = this.factory({ mode: 'empty', workingDirectory: this.directory, baseDirectory: path.join(this.directory, 'state'), logLevel: 'none', env, useLoggedInUser: token === null, ...(token === null ? {} : { gitHubToken: token }), enableRemoteSessions: false });
         try {
           await client.start();

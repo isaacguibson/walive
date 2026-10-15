@@ -109,7 +109,12 @@ function bootstrapAi(): void {
     event.preventDefault();
     stopping = true;
     copilotAuth.close();
-    void Promise.all([mcp.closeAll(), copilotRuntime.close()]).finally(() => app.quit());
+    // A runtime or server that does not stop must not keep the application alive, or the installer finds it still running.
+    const forced = setTimeout(() => app.exit(0), 5_000);
+    void Promise.all([mcp.closeAll(), copilotRuntime.close()]).finally(() => {
+      clearTimeout(forced);
+      app.quit();
+    });
   });
 }
 
@@ -147,6 +152,9 @@ function bootstrap(): void {
 }
 
 void app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.guibsonsoftwares.walive');
+  }
   bootstrap();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

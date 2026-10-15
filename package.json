@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package:win": "npm run build && electron-builder --win nsis"
+    "package:win": "npm run build && node scripts/packageWin.mjs"
   },
   "dependencies": {
     "@github/copilot-sdk": "1.0.21",
@@ -48,8 +48,22 @@
     "directories": {
       "output": "release"
     },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asar": false,
+    "npmRebuild": false,
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
