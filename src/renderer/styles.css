@@ -588,6 +588,38 @@ label[for='keep-aspect-ratio'] {
   background: var(--surface);
 }
 
+.editor-side-panel[hidden],
+.editor-ai-panel[hidden] {
+  display: none;
+}
+
+.editor-side-panel,
+.editor-ai-panel {
+  max-width: 40vw;
+}
+
+.editor-center {
+  min-width: 160px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-window-bar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
 .editor-resizer {
   position: relative;
   flex: 0 0 8px;

@@ -105,6 +105,10 @@ const api: AppAPI = {
     testMcpServer: (serverId) => call(IPC_CHANNELS.aiTestMcpServer, { serverId }),
     listMcpTools: () => call(IPC_CHANNELS.aiListMcpTools),
     callMcpTool: (serverId, tool, input) => call(IPC_CHANNELS.aiCallMcpTool, { serverId, tool, input })
+  },
+  layout: {
+    getLayout: () => call(IPC_CHANNELS.getLayout),
+    saveLayout: (layout) => call(IPC_CHANNELS.saveLayout, layout)
   }
 };
 

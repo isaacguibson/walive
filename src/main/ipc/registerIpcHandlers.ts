@@ -2,6 +2,7 @@ import type { Logger } from '@core/logger';
 import type { ProjectApplication } from '@core/application/projectApplication';
 import type { ExportApplication } from '@core/application/exportApplication';
 import { IPC_CHANNELS, type IpcRequest } from '@shared/ipc/channels';
+import { sanitizeToolWindowLayout, type ToolWindowLayout } from '@shared/types/layout';
 import { asRecord, createRegistrar, requireString, type IpcMainLike } from './ipcSupport';
 
 export type { IpcMainLike };
@@ -17,12 +18,19 @@ export interface AssetFilePicker {
   pickFiles(): Promise<string[]>;
 }
 
+/** Where the tool-window layout preference is kept. */
+export interface LayoutStore {
+  read(): Promise<ToolWindowLayout>;
+  write(layout: ToolWindowLayout): Promise<void>;
+}
+
 export interface IpcDependencies {
   ipc: IpcMainLike;
   application: ProjectApplication;
   exports: ExportApplication;
   directoryPicker: DirectoryPicker;
   assetPicker: AssetFilePicker;
+  layoutStore?: LayoutStore;
   logger: Logger;
 }
 
@@ -33,6 +41,7 @@ export function registerIpcHandlers({
   exports,
   directoryPicker,
   assetPicker,
+  layoutStore,
   logger
 }: IpcDependencies): void {
   const register = createRegistrar(ipc, logger);
@@ -56,6 +65,12 @@ export function registerIpcHandlers({
       }
     }
     return application.openProject(requireString(projectPath));
+  });
+
+  register(IPC_CHANNELS.getLayout, async () => sanitizeToolWindowLayout(await layoutStore?.read()));
+
+  register(IPC_CHANNELS.saveLayout, async (payload) => {
+    await layoutStore?.write(sanitizeToolWindowLayout(payload));
   });
 
   register(IPC_CHANNELS.closeProject, () => application.closeProject());

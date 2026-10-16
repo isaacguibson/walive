@@ -21,6 +21,7 @@ import { consoleLogger } from '@core/logger';
 import { ProjectService } from '@core/project/projectService';
 import { IPC_EVENTS } from '@shared/ipc/channels';
 import { registerAiIpcHandlers } from './ipc/registerAiIpcHandlers';
+import { sanitizeToolWindowLayout } from '@shared/types/layout';
 import { registerIpcHandlers } from './ipc/registerIpcHandlers';
 import { ElectronAssetFilePicker } from './services/assetFilePicker';
 import { ElectronAttachmentFilePicker } from './services/aiAttachmentPicker';
@@ -145,6 +146,7 @@ function bootstrap(): void {
     exports,
     directoryPicker: new ElectronDirectoryPicker(),
     assetPicker: new ElectronAssetFilePicker(),
+    layoutStore: new JsonFile(path.join(app.getPath('userData'), 'layout.json'), sanitizeToolWindowLayout, 'The layout preferences'),
     logger: consoleLogger
   });
 

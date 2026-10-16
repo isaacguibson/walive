@@ -88,6 +88,8 @@ describe('IPC handlers', () => {
         'export:destination',
         'export:reveal',
         'export:start',
+        'layout:get',
+        'layout:save',
         'project:close',
         'project:create',
         'project:get-recent',

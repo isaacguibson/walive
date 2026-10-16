@@ -1,4 +1,5 @@
 import type { IpcResult } from './errors';
+import type { ToolWindowLayout } from './layout';
 import type {
   AIPreferences,
   AIState,
@@ -148,6 +149,12 @@ export interface AIAPI {
   callMcpTool(serverId: string, tool: string, input: Record<string, unknown>): Promise<IpcResult<McpCallResult>>;
 }
 
+/** Application UI preferences (not project data). */
+export interface LayoutAPI {
+  getLayout(): Promise<IpcResult<ToolWindowLayout>>;
+  saveLayout(layout: ToolWindowLayout): Promise<IpcResult<void>>;
+}
+
 export interface AppAPI {
   project: ProjectAPI;
   animation: AnimationAPI;
@@ -155,4 +162,5 @@ export interface AppAPI {
   assets: AssetsAPI;
   export: ExportAPI;
   ai: AIAPI;
+  layout: LayoutAPI;
 }

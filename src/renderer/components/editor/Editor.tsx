@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { EditorSession } from '@editor/editorSession';
-import type { AIAPI, AssetsAPI, ScenesAPI } from '@shared/types/api';
+import type { AIAPI, AssetsAPI, LayoutAPI, ScenesAPI } from '@shared/types/api';
 import { matchShortcut } from '@editor/shortcuts/shortcuts';
 import type { AgentController } from '../../ai/agentController';
 import { useEditorSnapshot } from '../../state/useEditorSnapshot';
+import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH, useToolWindows } from '../../state/useToolWindows';
 import { AgentWorkspace } from '../ai/AgentWorkspace';
 import { AssetPanel } from './AssetPanel';
 import { CanvasWorkspace } from './CanvasWorkspace';
@@ -16,8 +17,6 @@ import { IconButton } from './IconButton';
 
 const MIN_TIMELINE_HEIGHT = 120;
 const MAX_TIMELINE_HEIGHT = 340;
-const MIN_PANEL_WIDTH = 180;
-const MAX_PANEL_WIDTH = 420;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -28,6 +27,7 @@ interface EditorProps {
   assetsApi: AssetsAPI;
   scenesApi: ScenesAPI;
   aiApi: AIAPI;
+  layoutApi?: LayoutAPI;
   agent: AgentController;
   /** The scene being edited. */
   scene: { id: string; name: string };
@@ -63,14 +63,16 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 /** The four editor areas plus the project header. Owns shortcuts and fullscreen, never persistence. */
-export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, projectName, sceneSelector, saving, closing, onExport, onSave, onClose }: EditorProps) {
+export function Editor({ session, assetsApi, scenesApi, aiApi, layoutApi, agent, scene, projectName, sceneSelector, saving, closing, onExport, onSave, onClose }: EditorProps) {
   const snapshot = useEditorSnapshot(session);
   const { state } = snapshot;
   const rootRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [timelineHeight, setTimelineHeight] = useState(168);
-  const [inspectorWidth, setInspectorWidth] = useState(260);
-  const [aiChatWidth, setAiChatWidth] = useState(340);
+  const toolWindows = useToolWindows(layoutApi);
+  const { minimized } = toolWindows.layout;
+  const inspectorWidth = toolWindows.layout.widths.inspector;
+  const aiChatWidth = toolWindows.layout.widths.chat;
   const [resizeState, setResizeState] = useState<
     null | { kind: 'timeline' | 'inspector' | 'chat'; startX: number; startY: number; startValue: number }
   >(null);
@@ -145,10 +147,10 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
       // left side, so dragging left always grows the panel and dragging right shrinks it.
       const grow = resizeState.startX - event.clientX;
       if (resizeState.kind === 'inspector') {
-        setInspectorWidth(clamp(resizeState.startValue + grow, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
+        toolWindows.setWidth('inspector', clamp(resizeState.startValue + grow, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
         return;
       }
-      setAiChatWidth(clamp(resizeState.startValue + grow, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
+      toolWindows.setWidth('chat', clamp(resizeState.startValue + grow, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
     };
 
     const handlePointerUp = () => setResizeState(null);
@@ -159,6 +161,7 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resizeState]);
 
   function startResize(kind: 'timeline' | 'inspector' | 'chat', event: ReactPointerEvent<HTMLDivElement>) {
@@ -262,17 +265,20 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
           <CanvasWorkspace session={session} snapshot={snapshot} assetsApi={assetsApi} />
         </main>
 
-        <div
-          className="editor-resizer editor-resizer-vertical"
-          role="separator"
-          aria-label="Resize inspector panel"
-          title="Resize inspector panel"
-          onPointerDown={(event) => startResize('inspector', event)}
-        />
+        {!minimized.toolOptions && (
+          <div
+            className="editor-resizer editor-resizer-vertical"
+            role="separator"
+            aria-label="Resize inspector panel"
+            title="Resize inspector panel"
+            onPointerDown={(event) => startResize('inspector', event)}
+          />
+        )}
 
         <aside className="editor-right">
-          <div className="editor-side-panel" style={{ width: inspectorWidth }}>
+          <div className="editor-side-panel" hidden={minimized.toolOptions} style={{ width: inspectorWidth }}>
             <ToolOptions
+              onMinimize={() => toolWindows.setMinimized('toolOptions', true)}
               state={state}
               selectedCurve={snapshot.activeLayer.curves.find((curve) => curve.id === state.curveEditor.selectedCurveId) ?? null}
               curve={{
@@ -321,13 +327,15 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
             />
           </div>
 
-          <div
-            className="editor-resizer editor-resizer-inner"
-            role="separator"
-            aria-label="Resize AI chat panel"
-            title="Resize AI chat panel"
-            onPointerDown={(event) => startResize('chat', event)}
-          />
+          {!minimized.ai && (
+            <div
+              className="editor-resizer editor-resizer-inner"
+              role="separator"
+              aria-label="Resize AI chat panel"
+              title="Resize AI chat panel"
+              onPointerDown={(event) => startResize('chat', event)}
+            />
+          )}
 
           <AgentWorkspace
             controller={agent}
@@ -338,8 +346,27 @@ export function Editor({ session, assetsApi, scenesApi, aiApi, agent, scene, pro
             scenesApi={scenesApi}
             assetsApi={assetsApi}
             width={aiChatWidth}
+            hidden={minimized.ai}
+            onMinimize={() => toolWindows.setMinimized('ai', true)}
           />
         </aside>
+
+        <nav className="tool-window-bar" aria-label="Tool windows">
+          <IconButton
+            icon="settings"
+            label="Tool Options"
+            tooltip={minimized.toolOptions ? 'Show Tool Options' : 'Minimize Tool Options'}
+            pressed={!minimized.toolOptions}
+            onClick={() => toolWindows.toggle('toolOptions')}
+          />
+          <IconButton
+            icon="sparkles"
+            label="AI Assistant"
+            tooltip={minimized.ai ? 'Show AI Assistant' : 'Minimize AI Assistant'}
+            pressed={!minimized.ai}
+            onClick={() => toolWindows.toggle('ai')}
+          />
+        </nav>
       </div>
 
       <div className="editor-timeline-wrapper" style={{ height: timelineHeight }}>

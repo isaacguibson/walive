@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, LayoutAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectMetadata } from '@shared/types/project';
 import { AgentController } from '../ai/agentController';
 import { createTurnClient } from '../ai/turnClient';
@@ -19,6 +19,7 @@ interface EditorPageProps {
   scenesApi: ScenesAPI;
   exportApi: ExportAPI;
   aiApi: AIAPI;
+  layoutApi?: LayoutAPI;
   project: ProjectMetadata;
   onClosed(): void;
 }
@@ -33,7 +34,7 @@ type SceneDialog = { kind: 'create'; discardCurrent: boolean } | { kind: 'rename
  * coordinates saving, scene management and closing. The editor never touches
  * files itself.
  */
-export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi, aiApi, project, onClosed }: EditorPageProps) {
+export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi, aiApi, layoutApi, project, onClosed }: EditorPageProps) {
   const workspace = useSceneWorkspace(project, animationApi, scenesApi);
   const { state, saving, busy, save } = workspace;
   const [closing, setClosing] = useState(false);
@@ -175,6 +176,7 @@ export function EditorPage({ api, animationApi, assetsApi, scenesApi, exportApi,
         assetsApi={assetsApi}
         scenesApi={scenesApi}
         aiApi={aiApi}
+        {...(layoutApi !== undefined ? { layoutApi } : {})}
         agent={agent}
         scene={{ id: state.activeSceneId, name: activeScene?.name ?? '' }}
         projectName={project.name}

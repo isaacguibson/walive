@@ -18,10 +18,12 @@ interface AgentWorkspaceProps {
   scenesApi: ScenesAPI;
   assetsApi: AssetsAPI;
   width: number;
+  hidden?: boolean;
+  onMinimize?: () => void;
 }
 
 /** The AI Agent Workspace: conversation, activity and approvals, and the composer. */
-export function AgentWorkspace({ controller, aiApi, session, projectName, scene, scenesApi, assetsApi, width }: AgentWorkspaceProps) {
+export function AgentWorkspace({ controller, aiApi, session, projectName, scene, scenesApi, assetsApi, width, hidden = false, onMinimize }: AgentWorkspaceProps) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -36,9 +38,12 @@ export function AgentWorkspace({ controller, aiApi, session, projectName, scene,
   const { conversation, running, ai } = snapshot;
 
   return (
-    <section className="editor-ai-panel" role="region" aria-label="AI Assistant" style={{ width }}>
-      <div className="panel-title-row ai-header">
+    <section className="editor-ai-panel" role="region" aria-label="AI Assistant" hidden={hidden} style={{ width }}>
+      <div className="panel-header">
         <h2 className="panel-title">AI Assistant</h2>
+        {onMinimize !== undefined && <IconButton icon="panelCollapse" label="Minimize AI Assistant" size={14} onClick={onMinimize} />}
+      </div>
+      <div className="panel-title-row ai-header">
         <div className="ai-header-actions">
           <IconButton icon="plus" label="New conversation" size={16} disabled={running} onClick={() => { controller.startNewConversation(); setShowHistory(false); }} />
           <IconButton icon="history" label="Conversations" size={16} pressed={showHistory} variant="toggle" onClick={() => setShowHistory(!showHistory)} />

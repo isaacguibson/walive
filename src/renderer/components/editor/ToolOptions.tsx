@@ -42,6 +42,7 @@ export interface ShapeOptionsHandlers {
 }
 
 interface ToolOptionsProps {
+  onMinimize?(): void;
   state: EditorState;
   /** The curve selected with the Bézier tool, if it is on the active layer. */
   selectedCurve: BezierCurve | null;
@@ -284,9 +285,6 @@ function ShapeFields({ shape, pending, handlers, colorField }: ShapeFieldsProps)
   const isLine = shape.kind === 'line';
   return (
     <>
-      <p className="muted">
-        Press on the canvas and drag to size the shape (a click places it with the size below). Drag it to move it. Enter or a click outside it paints it as ordinary artwork; Esc discards it.
-      </p>
       <div className="field">
         <label htmlFor="shape-kind">Shape</label>
         <select id="shape-kind" value={shape.kind} onChange={(event) => handlers.onKindChange(event.target.value as ShapeKind)}>
@@ -340,6 +338,7 @@ export function ToolOptions({
   selectedCurve,
   curve,
   shape,
+  onMinimize,
   onColorChange,
   onBrushTypeChange,
   onBrushSettingChange,
@@ -368,7 +367,10 @@ export function ToolOptions({
 
   return (
     <section className="tool-options" aria-label="Tool Options">
-      <h2 className="panel-title">Tool Options</h2>
+      <div className="panel-header">
+        <h2 className="panel-title">Tool Options</h2>
+        {onMinimize !== undefined && <IconButton icon="panelCollapse" label="Minimize Tool Options" size={14} onClick={onMinimize} />}
+      </div>
       <p className="tool-options-name">{tool?.name}</p>
 
       {state.selectedTool === 'brush' && (
@@ -413,9 +415,6 @@ export function ToolOptions({
       )}
       {state.selectedTool === 'bezier' && (
         <>
-          <p className="muted">
-            Click to add anchors, then drag an anchor or its handles to shape the curve. Enter or a double-click paints it as ordinary artwork; Esc discards it.
-          </p>
           <BrushFields
             prefix="curve"
             config={state.curveBrush}
@@ -504,10 +503,6 @@ export function ToolOptions({
 
       {state.selectedTool === 'select' && (
         <>
-          <p className="muted">
-            Drag to select an area of the active layer. Drag inside it to move, drag a handle to resize, drag the round handle above it to
-            rotate. Click outside to apply, Esc to cancel.
-          </p>
           <div className="checkbox-field">
             <label className="checkbox-row" htmlFor="selection-keep-aspect-ratio">
               <input

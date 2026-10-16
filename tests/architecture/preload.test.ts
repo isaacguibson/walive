@@ -39,7 +39,7 @@ describe('preload API', () => {
     const { project, animation, scenes, assets, export: exportApi } = await loadFullApi();
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [, api] = exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
-    expect(Object.keys(api).sort()).toEqual(['ai', 'animation', 'assets', 'export', 'project', 'scenes']);
+    expect(Object.keys(api).sort()).toEqual(['ai', 'animation', 'assets', 'export', 'layout', 'project', 'scenes']);
     expect(Object.keys(exportApi).sort()).toEqual([
       'cancelExport',
       'chooseDestination',

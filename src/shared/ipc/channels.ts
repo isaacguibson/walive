@@ -13,6 +13,7 @@ import type {
   TurnRequest,
   TurnResult
 } from '../ai/types';
+import type { ToolWindowLayout } from '../types/layout';
 import type { AssetImportResult, ProjectAsset } from '../types/assets';
 import type {
   DestinationQuery,
@@ -79,7 +80,9 @@ export const IPC_CHANNELS = {
   aiDisconnectMcpServer: 'ai:mcp-disconnect',
   aiTestMcpServer: 'ai:mcp-test',
   aiListMcpTools: 'ai:mcp-tools',
-  aiCallMcpTool: 'ai:mcp-call'
+  aiCallMcpTool: 'ai:mcp-call',
+  getLayout: 'layout:get',
+  saveLayout: 'layout:save'
 } as const;
 
 /** Channels the main process pushes to the renderer. */
@@ -145,6 +148,8 @@ export interface IpcContract {
   'ai:mcp-disconnect': { request: { serverId: string }; response: McpServerStatus | null };
   'ai:mcp-test': { request: { serverId: string }; response: McpServerStatus };
   'ai:mcp-tools': { request: undefined; response: McpToolInfo[] };
+  'layout:get': { request: undefined; response: ToolWindowLayout };
+  'layout:save': { request: ToolWindowLayout; response: void };
   'ai:mcp-call': { request: { serverId: string; tool: string; input: Record<string, unknown> }; response: McpCallResult };
 }
 

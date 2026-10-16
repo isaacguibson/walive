@@ -37,7 +37,9 @@ export type IconName =
   | 'pressure'
   | 'stabilize'
   | 'opacity'
-  | 'paperPlane';
+  | 'paperPlane'
+  | 'panelCollapse'
+  | 'sparkles';
 
 const PATHS: Record<IconName, readonly string[]> = {
   brush: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'],
@@ -129,6 +131,8 @@ const PATHS: Record<IconName, readonly string[]> = {
   stabilize: ['M3 16c3-9 6-9 9-1s6 8 9-1'],
   opacity: ['M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z', 'M6.2 14h11.6'],
   paperPlane: ['M22 2 15 22l-4-9-9-4Z', 'M22 2 11 13'],
+  panelCollapse: ['M3 5h18v14H3Z', 'M15 5v14', 'm9 9 3 3-3 3'],
+  sparkles: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z', 'M19 16v4', 'M17 18h4'],
 };
 
 const FILLED: ReadonlySet<IconName> = new Set<IconName>(['play', 'stop']);

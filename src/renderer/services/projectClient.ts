@@ -1,8 +1,13 @@
-import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import type { AIAPI, AppAPI, AnimationAPI, AssetsAPI, ExportAPI, LayoutAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 
 /** Returns the AI API provided by the preload script. */
 export function getAiApi(): AIAPI {
   return window.api.ai;
+}
+
+/** Returns the UI layout preferences API provided by the preload script. */
+export function getLayoutApi(): LayoutAPI | undefined {
+  return (window.api as Partial<AppAPI> | undefined)?.layout;
 }
 
 /** Returns the project API provided by the preload script. */

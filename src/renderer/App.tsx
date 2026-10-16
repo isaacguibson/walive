@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
+import type { AIAPI, AnimationAPI, AssetsAPI, ExportAPI, LayoutAPI, ProjectAPI, ScenesAPI } from '@shared/types/api';
 import type { ProjectMetadata } from '@shared/types/project';
 import { EditorPage } from './pages/EditorPage';
 import { HomePage } from './pages/HomePage';
-import { getAiApi, getAnimationApi, getAssetsApi, getExportApi, getProjectApi, getScenesApi } from './services/projectClient';
+import { getAiApi, getAnimationApi, getAssetsApi, getExportApi, getLayoutApi, getProjectApi, getScenesApi } from './services/projectClient';
 
 type View = { name: 'home' } | { name: 'editor'; project: ProjectMetadata };
 
@@ -15,6 +15,7 @@ interface AppProps {
   scenesApi?: ScenesAPI;
   exportApi?: ExportAPI;
   aiApi?: AIAPI;
+  layoutApi?: LayoutAPI;
 }
 
 export function App({
@@ -23,7 +24,8 @@ export function App({
   assetsApi: injectedAssetsApi,
   scenesApi: injectedScenesApi,
   exportApi: injectedExportApi,
-  aiApi: injectedAiApi
+  aiApi: injectedAiApi,
+  layoutApi: injectedLayoutApi
 }: AppProps) {
   // Resolved once so effects depending on the API are not re-run on every render.
   const api = useMemo(() => injectedApi ?? getProjectApi(), [injectedApi]);
@@ -32,6 +34,7 @@ export function App({
   const scenesApi = useMemo(() => injectedScenesApi ?? getScenesApi(), [injectedScenesApi]);
   const exportApi = useMemo(() => injectedExportApi ?? getExportApi(), [injectedExportApi]);
   const aiApi = useMemo(() => injectedAiApi ?? getAiApi(), [injectedAiApi]);
+  const layoutApi = useMemo(() => injectedLayoutApi ?? getLayoutApi(), [injectedLayoutApi]);
   // The application always starts on the Home; the editor replaces it once a project is open.
   const [view, setView] = useState<View>({ name: 'home' });
 
@@ -44,6 +47,7 @@ export function App({
         scenesApi={scenesApi}
         exportApi={exportApi}
         aiApi={aiApi}
+        {...(layoutApi !== undefined ? { layoutApi } : {})}
         project={view.project}
         onClosed={() => setView({ name: 'home' })}
       />
