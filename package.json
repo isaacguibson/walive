@@ -1,6 +1,6 @@
 {
   "name": "animation-studio",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Desktop application for creating and editing 2D animations",
   "private": true,
   "main": "./out/main/main.js",
